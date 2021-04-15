@@ -54,6 +54,8 @@
 #define xstr(ss) str(ss)
 #define str(s) #s
 
+#include "accel/tcg/hybrid/hybrid_cpu.h"
+
 #define SLOT_RAX R_EAX
 #define SLOT_RBX R_EBX
 #define SLOT_RCX R_ECX
@@ -62,22 +64,22 @@
 #define SLOT_RDI R_EDI
 #define SLOT_RBP R_EBP
 #define SLOT_RSP R_ESP
-#define SLOT_R8 8
-#define SLOT_R9 9
-#define SLOT_R10 10
-#define SLOT_R11 11
-#define SLOT_R12 12
-#define SLOT_R13 13
-#define SLOT_R14 14
-#define SLOT_R15 15
-#define SLOT_GPR_END 16
+#define SLOT_R8 R_R8
+#define SLOT_R9 R_R9
+#define SLOT_R10 R_R10
+#define SLOT_R11 R_R11
+#define SLOT_R12 R_R12
+#define SLOT_R13 R_R13
+#define SLOT_R14 R_R14
+#define SLOT_R15 R_R15
+#define SLOT_GPR_END (R_R15 + 1)
 
 #define SLOT_ES R_ES
 #define SLOT_CS R_CS
 #define SLOT_SS R_SS
 #define SLOT_DS R_DS
 #define SLOT_FS R_FS
-#define SLOT_GS R_GS
+#define SLOT_GS 5 // weird link error: clash of names?
 #define SLOT_SEGR_END (R_GS + 1)
 
 typedef struct CpuContext_t
@@ -279,12 +281,13 @@ void save_native_context_clobber_syscall(uint64_t rsp, uint64_t *save_area)
 
     // valid flag
     context->valid = 1;
-    
+
     {
-        // CPUState *cpu = ENV_GET_CPU(task->emulated_state);
-        // TaskState *ts = cpu->opaque;
-        // atomic_xchg(&((TaskState *)thread_cpu->opaque)->signal_pending, 0);
-        // process_pending_signals(task->emulated_state);
+// CPUState *cpu = ENV_GET_CPU(task->emulated_state);
+// TaskState *ts = cpu->opaque;
+// atomic_xchg(&((TaskState *)thread_cpu->opaque)->signal_pending, 0);
+// process_pending_signals(task->emulated_state);
+#if 0
         TaskState * ts1 = (TaskState *)thread_cpu->opaque;
 
         CPUState *cpu = ENV_GET_CPU(task->emulated_state);
@@ -296,6 +299,7 @@ void save_native_context_clobber_syscall(uint64_t rsp, uint64_t *save_area)
         } else {
             // printf("CONSISTENT: [%lx] T1=%x T2=%x [state=%p]\n", task->tid, ts1->ts_tid, ts2->ts_tid, task->emulated_state);
         }
+#endif
     }
 
     switch (save_area[0])
@@ -380,7 +384,7 @@ void save_native_context_clobber_syscall(uint64_t rsp, uint64_t *save_area)
         task->is_native = 0;
         context->gpr[SLOT_RAX] = ret;
 
-        if (TARGET_NR_write == save_area[0] && ret == -512) 
+        if (TARGET_NR_write == save_area[0] && ret == -512)
         {
             // const char* str = "test\n";
             // write(2, str, sizeof(str));
@@ -394,14 +398,14 @@ void save_native_context_clobber_syscall(uint64_t rsp, uint64_t *save_area)
     {
     case TARGET_NR_rt_sigaction:
     {
-        #if 1
+#if 1
         // printf("\n[%lx] ENABLING SIGNALS AFTER SIGACTION\n\n", task->tid);
         // CPUState *cpu = ENV_GET_CPU(task->emulated_state);
         // TaskState *ts = cpu->opaque;
         // atomic_xchg(&ts->signal_pending, 1);
         process_pending_signals(task->emulated_state);
-        // atomic_xchg(&ts->signal_pending, 0);
-        #endif
+// atomic_xchg(&ts->signal_pending, 0);
+#endif
         break;
     }
 
@@ -885,7 +889,7 @@ void hybrid_init(void)
     if (hybrid_init_done)
         return;
 
-    // printf("DOING INIT\n");
+    printf("DOING INIT\n");
 
     char *res = getenv("HYBRID_CONF_FILE");
     if (res)
@@ -968,7 +972,7 @@ void switch_to_native(uint64_t target, CPUX86State *state)
 
                 *((uint32_t *)&plt_stub[6]) = (uint32_t)delta; // relative offset
 
-                printf("PLT entry %d: %p => %p %p\n", plt_stubs_count, plt[0], dummy_plt_stub, plt_stub);
+                printf("[%s] PLT entry %d: %p => %p %p\n", name, plt_stubs_count, plt[0], dummy_plt_stub, plt_stub);
                 shadow_plt[plt_stubs_count] = (uint64_t)plt[0];
                 plt[0] = plt_stub;
 
@@ -1138,14 +1142,15 @@ void hybrid_stub(void)
     return;
 }
 
-#define DEBUG_SYSCALLS 0
+#define DEBUG_SYSCALLS 1
 void hybrid_syscall(uint64_t retval,
                     uint64_t num, uint64_t arg1, uint64_t arg2,
                     uint64_t arg3, uint64_t arg4, uint64_t arg5,
                     uint64_t arg6, uint64_t arg7, uint64_t arg8)
 {
-    // task_t *task = get_task();
-
+#if DEBUG_SYSCALLS
+    task_t *task = get_task();
+#endif
     switch (num)
     {
     case TARGET_NR_openat:
@@ -1156,7 +1161,7 @@ void hybrid_syscall(uint64_t retval,
         {
             char *fname = (char *)(num == TARGET_NR_open ? arg1 : arg2);
 #if DEBUG_SYSCALLS
-            printf("SYSCALL: open(%s) = %d\n", fname, fd);
+            printf("[%lu] SYSCALL: open(%s) = %d\n", task->tid, fname, fd);
 #endif
             if (fd >= MAX_MMAP_FILES)
                 tcg_abort();
@@ -1174,7 +1179,7 @@ void hybrid_syscall(uint64_t retval,
         if (fd >= 0)
         {
 #if DEBUG_SYSCALLS
-            printf("SYSCALL: close(%d)\n", fd);
+            printf("[%lu] SYSCALL: close(%d)\n", task->tid, fd);
 #endif
             if (fd >= MAX_MMAP_FILES)
                 tcg_abort();
@@ -1191,8 +1196,8 @@ void hybrid_syscall(uint64_t retval,
         int fd = arg5;
         int prot = arg3;
 #if DEBUG_SYSCALLS
-        printf("SYSCALL: mmap(%lx, %ld, %d, %d, %d, %lu) = 0x%lx\n",
-               arg1, (size_t)arg2, prot, (int)arg4, fd, (off_t)arg6, retval);
+        printf("[%lu] SYSCALL: mmap(%lx, %ld, %d, %d, %d, %lu) = 0x%lx\n",
+               task->tid, arg1, (size_t)arg2, prot, (int)arg4, fd, (off_t)arg6, retval);
 #endif
         if (fd >= 0 && prot & PROT_EXEC)
         {
@@ -1211,7 +1216,7 @@ void hybrid_syscall(uint64_t retval,
     case TARGET_NR_clone:
     {
 #if DEBUG_SYSCALLS
-        printf("SYSCALL: clone() = 0x%lx\n", retval);
+        printf("[%lu] SYSCALL: clone() = 0x%lx\n", task->tid, retval);
 #endif
         break;
     }
@@ -1220,11 +1225,7 @@ void hybrid_syscall(uint64_t retval,
     case TARGET_NR_write:
     {
 #if DEBUG_SYSCALLS
-        printf("SYSCALL: write(%ld, ..., %ld) = %ld\n", arg1, arg3, retval);
-        if (arg3 == 37)
-        {
-            printf("ARG2: %s\n", (char *)arg2);
-        }
+        printf("[%lu] SYSCALL: write(%ld, ..., %ld) = %ld\n", task->tid, arg1, arg3, retval);
 #endif
         break;
     }
@@ -1232,14 +1233,14 @@ void hybrid_syscall(uint64_t retval,
     case TARGET_NR_brk:
     {
 #if DEBUG_SYSCALLS
-        printf("SYSCALL: brk(%lx) = %lx\n", arg1, retval);
+        printf("[%lu] SYSCALL: brk(%lx) = %lx\n", task->tid, arg1, retval);
 #endif
         break;
     }
 
     default:
 #if DEBUG_SYSCALLS
-        printf("[%lx] SYSCALL: %ld => 0x%lx\n", task->tid, num, retval);
+        printf("[%lu] SYSCALL: %ld => 0x%lx\n", task->tid, num, retval);
 #endif
         break;
     }

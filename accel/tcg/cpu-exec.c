@@ -140,6 +140,10 @@ static void init_delay_params(SyncClocks *sc, const CPUState *cpu)
 /* Execute a TB, and fix up the CPU state afterwards if necessary */
 static inline tcg_target_ulong cpu_tb_exec(CPUState *cpu, TranslationBlock *itb)
 {
+    /* HYBRID */
+    // printf("PC: 0x%lx\n", itb->pc);
+    /* HYBRID */
+
     CPUArchState *env = cpu->env_ptr;
     uintptr_t ret;
     TranslationBlock *last_tb;
@@ -243,7 +247,7 @@ void cpu_exec_step_atomic(CPUState *cpu)
     volatile bool in_exclusive_region = false;
 
     if (sigsetjmp(cpu->jmp_env, 0) == 0) {
-        tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, cf_mask);
+        tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, cf_mask, NULL);
         if (tb == NULL) {
             mmap_lock();
             tb = tb_gen_code(cpu, pc, cs_base, flags, cflags);
@@ -403,7 +407,7 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     target_ulong cs_base, pc;
     uint32_t flags;
 
-    tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, cf_mask);
+    tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, cf_mask, &last_tb);
     if (tb == NULL) {
         mmap_lock();
         tb = tb_gen_code(cpu, pc, cs_base, flags, cf_mask);
@@ -707,6 +711,10 @@ int cpu_exec(CPUState *cpu)
         }
         assert_no_pages_locked();
     }
+
+    /* HYBRID */
+    hybrid_init();
+    /* HYBRID */
 
     /* if an exception is pending, we execute it here */
     while (!cpu_handle_exception(cpu, &ret)) {

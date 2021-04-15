@@ -16,16 +16,51 @@
 #include "exec/exec-all.h"
 #include "exec/tb-hash.h"
 
+#include "accel/tcg/hybrid/hybrid.h"
+
 /* Might cause an exception, so have a longjmp destination ready */
 static inline TranslationBlock *
 tb_lookup__cpu_state(CPUState *cpu, target_ulong *pc, target_ulong *cs_base,
-                     uint32_t *flags, uint32_t cf_mask)
+                     uint32_t *flags, uint32_t cf_mask, TranslationBlock **last_tb)
 {
     CPUArchState *env = (CPUArchState *)cpu->env_ptr;
     TranslationBlock *tb;
     uint32_t hash;
 
     cpu_get_tb_cpu_state(env, pc, cs_base, flags);
+    
+    /* HYBRID */
+    // printf("EIP: %lx\n", pc);
+    int fetch_again_cpu_state = 0;
+    SWITCH_TO_NATIVE(*pc, env, &fetch_again_cpu_state);
+    // THIS IS IMPORTANT: compiler may reorder some assignments!
+    __asm__ __volatile__("":::"memory");
+    //
+    if (fetch_again_cpu_state) {
+        // printf("Refetching cpu state as native execution has terminated\n");
+
+        task_t* task = get_task();
+        if (task->must_exit) {
+            do_syscall(task->emulated_state,
+                        task->emulated_state->regs[R_EAX],
+                        task->emulated_state->regs[R_EDI],
+                        task->emulated_state->regs[R_ESI],
+                        task->emulated_state->regs[R_EDX],
+                        task->emulated_state->regs[10],
+                        task->emulated_state->regs[8],
+                        task->emulated_state->regs[9],
+                        0, 0);
+            tcg_abort();
+        }
+
+        cpu_get_tb_cpu_state(env, pc, cs_base, flags);
+        printf("Resuming emulation from %lx\n", *pc);
+        hybrid_stub();
+        if (last_tb)
+            *last_tb = NULL;
+    }
+    /* HYBRID */
+
     hash = tb_jmp_cache_hash_func(*pc);
     tb = atomic_rcu_read(&cpu->tb_jmp_cache[hash]);
 

@@ -112,6 +112,9 @@
 #include "qapi/error.h"
 #include "fd-trans.h"
 
+/* HYBRID */
+#include "accel/tcg/hybrid/hybrid.h"
+
 #ifndef CLONE_IO
 #define CLONE_IO                0x80000000      /* Clone io context */
 #endif
@@ -5677,6 +5680,11 @@ static void *clone_func(void *arg)
     /* Wait until the parent has finished initializing the tls state.  */
     pthread_mutex_lock(&clone_lock);
     pthread_mutex_unlock(&clone_lock);
+
+    /* HYBRID */
+    hybrid_set_sigill_handler();
+    /* HYBRID */
+
     cpu_loop(env);
     /* never exits */
     return NULL;
@@ -5773,6 +5781,9 @@ static int do_fork(CPUArchState *env, unsigned int flags, abi_ulong newsp,
             /* Wait for the child to initialize.  */
             pthread_cond_wait(&info.cond, &info.mutex);
             ret = info.tid;
+            /* HYBRID */
+            hybrid_new_thread(info.tid, (CPUX86State *) new_env);
+            /* HYBRID */
         } else {
             ret = -1;
         }
@@ -11990,6 +12001,10 @@ abi_long do_syscall(void *cpu_env, int num, abi_long arg1,
         ret = do_syscall1(cpu_env, num, arg1, arg2, arg3, arg4,
                           arg5, arg6, arg7, arg8);
     }
+
+    /* HYBRID */
+    hybrid_syscall(ret, num, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+    /* HYBRID */
 
     trace_guest_user_syscall_ret(cpu, num, ret);
     return ret;

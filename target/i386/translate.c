@@ -7268,6 +7268,18 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_eob_worker(s, false, true);
         }
         break;
+    /* HYBRID */
+    case 0x10b: /* undefined instruction */
+        // treat it as a syscall
+        gen_update_cc_op(s);
+        gen_jmp_im(s, pc_start - s->cs_base);
+        gen_helper_syscall(cpu_env, tcg_const_i32(s->pc - pc_start));
+        /* TF handling for the syscall insn is different. The TF bit is  checked
+           after the syscall insn completes. This allows #DB to not be
+           generated after one has entered CPL0 if TF is set in FMASK.  */
+        gen_eob_worker(s, false, true);
+        break;
+    /* HYBRID */
 #endif
     case 0x1a2: /* cpuid */
         gen_update_cc_op(s);
