@@ -105,3 +105,8 @@ SymExpr _sym_build_shift_left(SymExpr a, SymExpr b)
 {
     tcg_abort();
 }
+
+size_t _sym_bits_helper(SymExpr expr)
+{
+    tcg_abort();
+}

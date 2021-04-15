@@ -45,18 +45,18 @@
     }                                                                          \
                                                                                \
     if (arg1_expr == NULL) {                                                   \
-        arg1_expr = _sym_build_integer(arg1, _sym_bits_helper2(arg2_expr));     \
+        arg1_expr = _sym_build_integer(arg1, _sym_bits_helper(arg2_expr));     \
     }                                                                          \
                                                                                \
     if (arg2_expr == NULL) {                                                   \
-        arg2_expr = _sym_build_integer(arg2, _sym_bits_helper2(arg1_expr));     \
+        arg2_expr = _sym_build_integer(arg2, _sym_bits_helper(arg1_expr));     \
     }                                                                          \
                                                                                \
-    assert(_sym_bits_helper2(arg1_expr) == 32 ||                                \
-           _sym_bits_helper2(arg1_expr) == 64);                                 \
-    assert(_sym_bits_helper2(arg2_expr) == 32 ||                                \
-           _sym_bits_helper2(arg2_expr) == 64);                                 \
-    assert(_sym_bits_helper2(arg1_expr) == _sym_bits_helper2(arg2_expr));
+    assert(_sym_bits_helper(arg1_expr) == 32 ||                                \
+           _sym_bits_helper(arg1_expr) == 64);                                 \
+    assert(_sym_bits_helper(arg2_expr) == 32 ||                                \
+           _sym_bits_helper(arg2_expr) == 64);                                 \
+    assert(_sym_bits_helper(arg1_expr) == _sym_bits_helper(arg2_expr));
 
 /* This macro declares a binary helper function with 64-bit arguments and
  * defines a 32-bit helper function that delegates to it. Use it instead of the
