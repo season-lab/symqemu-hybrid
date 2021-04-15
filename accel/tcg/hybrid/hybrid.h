@@ -9,9 +9,13 @@
 #include "linux-user/qemu.h"
 #include "linux-user/x86_64/syscall_nr.h"
 
+#define HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
+
 extern abi_ulong start_addr;
+#if 0
 extern uint64_t plt_jump_table_addr;
 extern uint64_t nb_plt_entries;
+#endif
 
 int is_hooked_plt_entry(uint64_t target);
 void switch_to_emulated(int plt_entry);
@@ -28,6 +32,8 @@ void hybrid_syscall(uint64_t retval,
 void hybrid_new_thread(uint64_t tid, CPUX86State *state);
 void hybrid_set_sigill_handler(void);
 int hybrid_is_task_native(void);
+
+size_t _sym_bits_helper2(void* expr);
 
 struct CpuContext_t;
 typedef struct
