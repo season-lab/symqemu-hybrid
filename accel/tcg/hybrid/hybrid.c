@@ -132,9 +132,16 @@ typedef struct
     uint64_t addr;
 } mmap_file_t;
 
+typedef struct
+{
+    char *name;
+    uint64_t offset;
+} runtime_ptr_t;
+
 #define MAX_MMAP_FILES 64
 open_file_t open_files[MAX_MMAP_FILES] = {0};
 GSList *mmaped_files = NULL;
+GSList *runtime_ptrs = NULL;
 
 int arch_prctl(int code, unsigned long addr);
 
@@ -160,7 +167,28 @@ static int parse_config_file(char *file)
     char **groups_original = groups;
     while (*groups != NULL)
     {
-        if (strcmp(*groups, "start_addr") != 0)
+        if (strcmp(*groups, "runtime") == 0)
+        {
+            GSList *runtime_ptrs = NULL;
+            char **values = g_key_file_get_keys(gkf, *groups, NULL, NULL);
+            if (values)
+            {
+                while (*values)
+                {
+                    char *res = g_key_file_get_value(gkf, *groups, *values, NULL);
+                    if (res)
+                    {
+                        runtime_ptr_t *runtime_ptr = g_malloc0(sizeof(runtime_ptr_t));
+                        runtime_ptr->name = strdup(*values);
+                        runtime_ptr->offset = (target_ulong)strtoull(res, NULL, 16);
+                        runtime_ptrs = g_slist_append(runtime_ptrs, (gpointer)runtime_ptr);
+                        printf("runtime: %s -> %lx\n", runtime_ptr->name, runtime_ptr->offset);
+                    }
+                    values++;
+                }
+            }
+        }
+        else if (strcmp(*groups, "start_addr") != 0)
         {
             GSList *offsets = NULL;
             // int is_main_image = strcmp(*groups, "main_image") == 0;
@@ -230,18 +258,59 @@ task_t *get_task(void)
     return task;
 }
 
+__attribute__((optimize("no-stack-protector")))
+uint64_t
+switch_fsbase_to_native(task_t *task)
+{
+    uint64_t fs_base;
+    arch_prctl(ARCH_GET_FS, (uint64_t)&fs_base);
+
+    printf("OLD BASE: %lx - NATIVE BASE: %lx\n", fs_base, task->native_context->fs_base);
+
+    arch_prctl(ARCH_SET_FS, task->native_context->fs_base);
+
+    return fs_base;
+}
+
+__attribute__((optimize("no-stack-protector")))
+uint64_t
+switch_fsbase_to_qemu(task_t *task)
+{
+    uint64_t fs_base;
+    arch_prctl(ARCH_GET_FS, (uint64_t)&fs_base);
+
+    arch_prctl(ARCH_SET_FS, task->qemu_context->fs_base);
+
+    printf("OLD BASE: %lx - QEMU BASE: %lx\n", fs_base, task->qemu_context->fs_base);
+
+    return fs_base;
+}
+
+__attribute__((optimize("no-stack-protector"))) void switch_fsbase_to(uint64_t fs_base)
+{
+    uint64_t current_fs_base;
+    arch_prctl(ARCH_GET_FS, (uint64_t)&current_fs_base);
+    arch_prctl(ARCH_SET_FS, fs_base);
+    printf("RESTORING BASE: CURRENT %lx - NEW: %lx\n", current_fs_base, fs_base);
+}
+
 void hybrid_syscall_handler(int mysignal, siginfo_t *si, void *arg);
 extern void restore_qemu_context(CpuContext *context);
+
+static int counter = 0;
 
 void save_native_context_clobber_syscall(uint64_t rsp, uint64_t *save_area);
 void save_native_context_clobber_syscall(uint64_t rsp, uint64_t *save_area)
 {
+    counter += 1;
     task_t *task = get_task();
 
     uint64_t fs_base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&fs_base);
 
     arch_prctl(ARCH_SET_FS, task->qemu_context->fs_base);
+
+    printf("SYSCALL HANDLING: %d\n", counter);
 
 #if 0
     printf("Handler #2: fs_base=%lx fs_base_qemu=%lx\n", fs_base, task->qemu_context->fs_base);
@@ -250,6 +319,11 @@ void save_native_context_clobber_syscall(uint64_t rsp, uint64_t *save_area)
 #endif
 
     CpuContext *context = task->native_context;
+    if (task->is_inside_runtime)
+    {
+        context = task->recursive_native_context;
+    }
+
     *((uint64_t *)(rsp - 8)) = (uint64_t)context;
 
     // general purpose registers
@@ -418,6 +492,8 @@ void save_native_context_clobber_syscall(uint64_t rsp, uint64_t *save_area)
     action.sa_flags = SA_SIGINFO | SA_RESTART;
     sigaction(SIGILL, &action, &task->qemu_context->sigill_handler);
 
+    printf("DONE SYSCALL HANDLING: %d\n", counter);
+
     // restore fsbase to avoid canary check failure...
     arch_prctl(ARCH_SET_FS, fs_base);
 }
@@ -509,6 +585,7 @@ void hybrid_syscall_handler(int mysignal, siginfo_t *si, void *arg)
 static task_t *hybrid_new_task(uint64_t tid)
 {
     CpuContext *native_context = g_malloc0(sizeof(CpuContext));
+    CpuContext *recursive_native_context = g_malloc0(sizeof(CpuContext));
     CpuContext *emulated_context = g_malloc0(sizeof(CpuContext));
     CpuContext *qemu_context = g_malloc0(sizeof(CpuContext));
 
@@ -519,6 +596,7 @@ static task_t *hybrid_new_task(uint64_t tid)
         {
             tasks[i].tid = tid;
             tasks[i].native_context = native_context;
+            tasks[i].recursive_native_context = recursive_native_context;
             tasks[i].emulated_context = emulated_context;
             tasks[i].qemu_context = qemu_context;
             return &tasks[i];
@@ -727,7 +805,7 @@ __asm__(
     ".type func, @function\n"
     "save_native_context_safe_syscall:\n"
     ".cfi_startproc\n\t"
-    "pushq $0\n" // native context
+    "pushq $0xBEEF\n" // native context
 // #define PRESERVE_XMM
 // #define RESTORE_XMM
 #define SAVE_ROUTINE save_native_context_clobber_syscall
@@ -926,6 +1004,8 @@ void switch_to_native(uint64_t target, CPUX86State *state)
     // patch PLTs && syscall insns
     if (target == start_addr)
     {
+        set_symcc_runtime_init_done();
+
         mprotect(PAGE_ALIGNED(plt_stubs), PAGE_ALIGNED_SIZE(plt_stubs, sizeof(plt_stubs)),
                  PROT_EXEC | PROT_READ | PROT_WRITE);
 
@@ -1165,8 +1245,8 @@ void hybrid_syscall(uint64_t retval,
 #endif
             if (fd >= MAX_MMAP_FILES)
                 tcg_abort();
-            if (open_files[fd].state != FILE_STATE_INVALID)
-                tcg_abort();
+            // if (open_files[fd].state != FILE_STATE_INVALID)
+            //    tcg_abort();
             open_files[fd].state = FILE_STATE_OPEN;
             open_files[fd].name = strdup(fname);
         }
@@ -1209,6 +1289,11 @@ void hybrid_syscall(uint64_t retval,
             mft->name = open_files[fd].name;
             mft->addr = retval;
             mmaped_files = g_slist_append(mmaped_files, (gpointer)mft);
+
+            if (strcmp("libSymRuntime.so", basename(mft->name)) == 0)
+            {
+                symcc_runtime_load(mft->addr);
+            }
         }
         break;
     }

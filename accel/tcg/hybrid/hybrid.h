@@ -33,18 +33,23 @@ void hybrid_new_thread(uint64_t tid, CPUX86State *state);
 void hybrid_set_sigill_handler(void);
 int hybrid_is_task_native(void);
 
-size_t _sym_bits_helper2(void* expr);
+void set_symcc_runtime_init_done(void);
+void symcc_runtime_load(uint64_t addr);
+ssize_t safe_read(int fd, void *buf, size_t count);
+int safe_openat(int dirfd, const char * pathname, int flags, mode_t mode);
 
 struct CpuContext_t;
 typedef struct
 {
     uint64_t tid;
     struct CpuContext_t *native_context;
+    struct CpuContext_t *recursive_native_context;
     struct CpuContext_t *emulated_context;
     struct CpuContext_t *qemu_context;
     CPUX86State *emulated_state;
     bool is_native;
     bool must_exit;
+    bool is_inside_runtime;
 } task_t;
 
 task_t *get_task(void);
@@ -69,4 +74,9 @@ task_t *get_task(void);
         }                                                               \
     } while (0)
 
+uint64_t switch_fsbase_to_native(task_t* task);
+uint64_t switch_fsbase_to_qemu(task_t* task);
+void switch_fsbase_to(uint64_t fs_base);
+
 #endif // HYBRID_H
+

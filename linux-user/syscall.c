@@ -706,10 +706,23 @@ static type safe_##name(type1 arg1, type2 arg2) \
     return safe_syscall(__NR_##name, arg1, arg2); \
 }
 
+#define safe_nonstatic_syscall3(type, name, type1, arg1, type2, arg2, type3, arg3) \
+type safe_##name(type1 arg1, type2 arg2, type3 arg3) \
+{ \
+    return safe_syscall(__NR_##name, arg1, arg2, arg3); \
+}
+
 #define safe_syscall3(type, name, type1, arg1, type2, arg2, type3, arg3) \
 static type safe_##name(type1 arg1, type2 arg2, type3 arg3) \
 { \
     return safe_syscall(__NR_##name, arg1, arg2, arg3); \
+}
+
+#define safe_nonstatic_syscall4(type, name, type1, arg1, type2, arg2, type3, arg3, \
+    type4, arg4) \
+type safe_##name(type1 arg1, type2 arg2, type3 arg3, type4 arg4) \
+{ \
+    return safe_syscall(__NR_##name, arg1, arg2, arg3, arg4); \
 }
 
 #define safe_syscall4(type, name, type1, arg1, type2, arg2, type3, arg3, \
@@ -735,10 +748,13 @@ static type safe_##name(type1 arg1, type2 arg2, type3 arg3, type4 arg4, \
     return safe_syscall(__NR_##name, arg1, arg2, arg3, arg4, arg5, arg6); \
 }
 
-safe_syscall3(ssize_t, read, int, fd, void *, buff, size_t, count)
+safe_nonstatic_syscall3(ssize_t, read, int, fd, void *, buff, size_t, count)
+
 safe_syscall3(ssize_t, write, int, fd, const void *, buff, size_t, count)
-safe_syscall4(int, openat, int, dirfd, const char *, pathname, \
+
+safe_nonstatic_syscall4(int, openat, int, dirfd, const char *, pathname, \
               int, flags, mode_t, mode)
+
 safe_syscall4(pid_t, wait4, pid_t, pid, int *, status, int, options, \
               struct rusage *, rusage)
 safe_syscall5(int, waitid, idtype_t, idtype, id_t, id, siginfo_t *, infop, \

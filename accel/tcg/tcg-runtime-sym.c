@@ -130,61 +130,37 @@ void *HELPER(sym_neg)(void *expr)
     if (expr == NULL)
         return NULL;
 
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return _sym_build_neg(expr);
-#endif
 }
 
 DECL_HELPER_BINARY(andc)
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return _sym_build_and(arg1_expr, _sym_build_not(arg2_expr));
-#endif
 }
 
 DECL_HELPER_BINARY(eqv)
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return _sym_build_not(_sym_build_xor(arg1_expr, arg2_expr));
-#endif
 }
 
 DECL_HELPER_BINARY(nand)
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return _sym_build_not(_sym_build_and(arg1_expr, arg2_expr));
-#endif
 }
 
 DECL_HELPER_BINARY(nor)
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return _sym_build_not(_sym_build_or(arg1_expr, arg2_expr));
-#endif
 }
 
 DECL_HELPER_BINARY(orc)
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return _sym_build_or(arg1_expr, _sym_build_not(arg2_expr));
-#endif
 }
 
 void *HELPER(sym_not)(void *expr)
@@ -192,11 +168,7 @@ void *HELPER(sym_not)(void *expr)
     if (expr == NULL)
         return NULL;
 
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return _sym_build_not(expr);
-#endif
 }
 
 void *HELPER(sym_muluh_i64)(uint64_t arg1, void *arg1_expr,
@@ -204,26 +176,17 @@ void *HELPER(sym_muluh_i64)(uint64_t arg1, void *arg1_expr,
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
 
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
-
     assert(_sym_bits_helper(arg1_expr) == 64 &&
            _sym_bits_helper(arg2_expr) == 64);
     void *full_result = _sym_build_mul(_sym_build_zext(arg1_expr, 64),
                                        _sym_build_zext(arg2_expr, 64));
     return _sym_extract_helper(full_result, 127, 64);
-#endif
 }
 
 void *HELPER(sym_sext)(void *expr, uint64_t target_length)
 {
     if (expr == NULL)
         return NULL;
-
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
 
     size_t current_bits = _sym_bits_helper(expr);
     size_t bits_to_keep = target_length * 8;
@@ -233,7 +196,6 @@ void *HELPER(sym_sext)(void *expr, uint64_t target_length)
     return _sym_build_arithmetic_shift_right(
         _sym_build_shift_left(expr, shift_distance_expr),
         shift_distance_expr);
-#endif
 }
 
 void *HELPER(sym_zext)(void *expr, uint64_t target_length)
@@ -241,17 +203,12 @@ void *HELPER(sym_zext)(void *expr, uint64_t target_length)
     if (expr == NULL)
         return NULL;
 
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
-
     size_t current_bits = _sym_bits_helper(expr);
     size_t desired_bits = target_length * 8;
 
     return _sym_build_and(
         expr,
         _sym_build_integer((1ull << desired_bits) - 1, current_bits));
-#endif
 }
 
 void *HELPER(sym_sext_i32_i64)(void *expr)
@@ -259,13 +216,8 @@ void *HELPER(sym_sext_i32_i64)(void *expr)
     if (expr == NULL)
         return NULL;
 
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
-
     assert(_sym_bits_helper(expr) == 32);
     return _sym_build_sext(expr, 32); /* extend by 32 */
-#endif
 }
 
 void *HELPER(sym_zext_i32_i64)(void *expr)
@@ -273,13 +225,8 @@ void *HELPER(sym_zext_i32_i64)(void *expr)
     if (expr == NULL)
         return NULL;
 
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
-
     assert(_sym_bits_helper(expr) == 32);
     return _sym_build_zext(expr, 32); /* extend by 32 */
-#endif
 }
 
 void *HELPER(sym_trunc_i64_i32)(void *expr)
@@ -287,23 +234,14 @@ void *HELPER(sym_trunc_i64_i32)(void *expr)
     if (expr == NULL)
         return NULL;
 
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
-
     assert(_sym_bits_helper(expr) == 64);
     return _sym_build_trunc(expr, 32);
-#endif
 }
 
 void *HELPER(sym_bswap)(void *expr, uint64_t length)
 {
     if (expr == NULL)
         return NULL;
-
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
 
     /* The implementation follows the alternative implementations of
      * tcg_gen_bswap* in tcg-op.c (which handle architectures that don't support
@@ -366,7 +304,6 @@ void *HELPER(sym_bswap)(void *expr, uint64_t length)
     default:
         g_assert_not_reached();
     }
-#endif
 }
 
 static void *sym_load_guest_internal(CPUArchState *env,
@@ -374,10 +311,6 @@ static void *sym_load_guest_internal(CPUArchState *env,
                                      uint64_t load_length, uint8_t result_length,
                                      target_ulong mmu_idx)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
-
     /* Try an alternative address */
     if (addr_expr != NULL)
         _sym_push_path_constraint(
@@ -392,30 +325,20 @@ static void *sym_load_guest_internal(CPUArchState *env,
         return memory_expr;
     else
         return _sym_build_zext(memory_expr, (result_length - load_length) * 8);
-
-#endif
 }
 
 void *HELPER(sym_load_guest_i32)(CPUArchState *env,
                                  target_ulong addr, void *addr_expr,
                                  uint64_t length, target_ulong mmu_idx)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return sym_load_guest_internal(env, addr, addr_expr, length, 4, mmu_idx);
-#endif
 }
 
 void *HELPER(sym_load_guest_i64)(CPUArchState *env,
                                  target_ulong addr, void *addr_expr,
                                  uint64_t length, target_ulong mmu_idx)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return sym_load_guest_internal(env, addr, addr_expr, length, 8, mmu_idx);
-#endif
 }
 
 static void sym_store_guest_internal(CPUArchState *env,
@@ -423,9 +346,6 @@ static void sym_store_guest_internal(CPUArchState *env,
                                      target_ulong addr, void *addr_expr,
                                      uint64_t length, target_ulong mmu_idx)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return;
-#else
     /* Try an alternative address */
     if (addr_expr != NULL)
         _sym_push_path_constraint(
@@ -435,7 +355,6 @@ static void sym_store_guest_internal(CPUArchState *env,
 
     void *host_addr = tlb_vaddr_to_host(env, addr, MMU_DATA_STORE, mmu_idx);
     _sym_write_memory((uint8_t*)host_addr, length, value_expr, true);
-#endif
 }
 
 void HELPER(sym_store_guest_i32)(CPUArchState *env,
@@ -443,12 +362,8 @@ void HELPER(sym_store_guest_i32)(CPUArchState *env,
                                  target_ulong addr, void *addr_expr,
                                  uint64_t length, target_ulong mmu_idx)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return;
-#else
     return sym_store_guest_internal(
         env, value, value_expr, addr, addr_expr, length, mmu_idx);
-#endif
 }
 
 void HELPER(sym_store_guest_i64)(CPUArchState *env,
@@ -456,20 +371,13 @@ void HELPER(sym_store_guest_i64)(CPUArchState *env,
                                  target_ulong addr, void *addr_expr,
                                  uint64_t length, target_ulong mmu_idx)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return;
-#else
     return sym_store_guest_internal(
         env, value, value_expr, addr, addr_expr, length, mmu_idx);
-#endif
 }
 
 static void *sym_load_host_internal(void *addr, uint64_t offset,
                                     uint64_t load_length, uint64_t result_length)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     void *memory_expr = _sym_read_memory(
         (uint8_t*)addr + offset, load_length, true);
 
@@ -477,56 +385,35 @@ static void *sym_load_host_internal(void *addr, uint64_t offset,
         return memory_expr;
     else
         return _sym_build_zext(memory_expr, (result_length - load_length) * 8);
-#endif
 }
 
 void *HELPER(sym_load_host_i32)(void *addr, uint64_t offset, uint64_t length)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return sym_load_host_internal(addr, offset, length, 4);
-#endif
 }
 
 void *HELPER(sym_load_host_i64)(void *addr, uint64_t offset, uint64_t length)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
-    return sym_load_host_internal(addr, offset, length, 8);
-#endif
+   return sym_load_host_internal(addr, offset, length, 8);
 }
 
 void HELPER(sym_store_host_i32)(uint32_t value, void *value_expr,
                                 void *addr,
                                 uint64_t offset, uint64_t length)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return;
-#else
     _sym_write_memory((uint8_t*)addr + offset, length, value_expr, true);
-#endif
 }
 
 void HELPER(sym_store_host_i64)(uint64_t value, void *value_expr,
                                 void *addr,
                                 uint64_t offset, uint64_t length)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return;
-#else
     _sym_write_memory((uint8_t*)addr + offset, length, value_expr, true);
-#endif
 }
 
 DECL_HELPER_BINARY(rotate_left)
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
-
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
 
     /* The implementation follows the alternative implementation of
      * tcg_gen_rotl_i64 in tcg-op.c (which handles architectures that don't
@@ -538,16 +425,11 @@ DECL_HELPER_BINARY(rotate_left)
         _sym_build_logical_shift_right(
             arg1_expr,
             _sym_build_sub(_sym_build_integer(bits, bits), arg2_expr)));
-#endif
 }
 
 DECL_HELPER_BINARY(rotate_right)
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
-
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
 
     /* The implementation follows the alternative implementation of
      * tcg_gen_rotr_i64 in tcg-op.c (which handles architectures that don't
@@ -559,32 +441,21 @@ DECL_HELPER_BINARY(rotate_right)
         _sym_build_shift_left(
             arg1_expr,
             _sym_build_sub(_sym_build_integer(bits, bits), arg2_expr)));
-#endif
 }
 
 void *HELPER(sym_extract_i32)(void *expr, uint32_t ofs, uint32_t len)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return HELPER(sym_extract_i64)(expr, ofs, len);
-#endif
 }
 
 void *HELPER(sym_extract_i64)(void *expr, uint64_t ofs, uint64_t len)
 {
     if (expr == NULL)
         return NULL;
-    
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
 
     return _sym_build_zext(
         _sym_extract_helper(expr, ofs + len - 1, ofs),
         _sym_bits_helper(expr) - len);
-
-#endif
 }
 
 void *HELPER(sym_extract2_i32)(uint32_t ah, void *ah_expr,
@@ -593,10 +464,6 @@ void *HELPER(sym_extract2_i32)(uint32_t ah, void *ah_expr,
 {
     if (ah_expr == NULL && al_expr == NULL)
         return NULL;
-
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
 
     if (ah_expr == NULL)
         ah_expr = _sym_build_integer(ah, 32);
@@ -621,8 +488,6 @@ void *HELPER(sym_extract2_i32)(uint32_t ah, void *ah_expr,
         ah, ah_expr,
         32 - ofs,
         ofs);
-
-#endif
 }
 
 void *HELPER(sym_extract2_i64)(uint64_t ah, void *ah_expr,
@@ -631,10 +496,6 @@ void *HELPER(sym_extract2_i64)(uint64_t ah, void *ah_expr,
 {
     if (ah_expr == NULL && al_expr == NULL)
         return NULL;
-
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
 
     if (ah_expr == NULL)
         ah_expr = _sym_build_integer(ah, 64);
@@ -659,17 +520,11 @@ void *HELPER(sym_extract2_i64)(uint64_t ah, void *ah_expr,
         ah, ah_expr,
         64 - ofs,
         ofs);
-
-#endif
 }
 
 void *HELPER(sym_sextract_i32)(void *expr, uint32_t ofs, uint32_t len)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return HELPER(sym_sextract_i64)(expr, ofs, len);
-#endif
 }
 
 void *HELPER(sym_sextract_i64)(void *expr, uint64_t ofs, uint64_t len)
@@ -677,13 +532,9 @@ void *HELPER(sym_sextract_i64)(void *expr, uint64_t ofs, uint64_t len)
     if (expr == NULL)
         return NULL;
 
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return _sym_build_sext(
         _sym_extract_helper(expr, ofs + len - 1, ofs),
         _sym_bits_helper(expr) - len);
-#endif
 }
 
 void *HELPER(sym_deposit_i32)(uint32_t arg1, void *arg1_expr,
@@ -691,10 +542,6 @@ void *HELPER(sym_deposit_i32)(uint32_t arg1, void *arg1_expr,
                               uint32_t ofs, uint32_t len)
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
-
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
 
     /* The symbolic implementation follows the alternative concrete
      * implementation of tcg_gen_deposit_i32 in tcg-op.c (which handles
@@ -708,7 +555,6 @@ void *HELPER(sym_deposit_i32)(uint32_t arg1, void *arg1_expr,
         _sym_build_shift_left(
             _sym_build_and(arg2_expr, _sym_build_integer(mask, 32)),
             _sym_build_integer(ofs, 32)));
-#endif
 }
 
 void *HELPER(sym_deposit_i64)(uint64_t arg1, void *arg1_expr,
@@ -716,10 +562,6 @@ void *HELPER(sym_deposit_i64)(uint64_t arg1, void *arg1_expr,
                               uint64_t ofs, uint64_t len)
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
-
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
 
     /* The symbolic implementation follows the alternative concrete
      * implementation of tcg_gen_deposit_i64 in tcg-op.c (which handles
@@ -733,7 +575,6 @@ void *HELPER(sym_deposit_i64)(uint64_t arg1, void *arg1_expr,
         _sym_build_shift_left(
             _sym_build_and(arg2_expr, _sym_build_integer(mask, 64)),
             _sym_build_integer(ofs, 64)));
-#endif
 }
 
 static void *sym_setcond_internal(CPUArchState *env,
@@ -743,10 +584,6 @@ static void *sym_setcond_internal(CPUArchState *env,
                                   uint8_t result_bits)
 {
     BINARY_HELPER_ENSURE_EXPRESSIONS;
-
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
 
     void *(*handler)(void *, void*);
     switch (cond) {
@@ -788,7 +625,6 @@ static void *sym_setcond_internal(CPUArchState *env,
     _sym_push_path_constraint(condition, result, get_pc(env));
 
     return _sym_build_bool_to_bits(condition, result_bits);
-#endif
 }
 
 void *HELPER(sym_setcond_i32)(CPUArchState *env,
@@ -796,13 +632,8 @@ void *HELPER(sym_setcond_i32)(CPUArchState *env,
                               uint32_t arg2, void *arg2_expr,
                               int32_t cond, uint32_t result)
 {
-
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return sym_setcond_internal(
         env, arg1, arg1_expr, arg2, arg2_expr, cond, result, 32);
-#endif
 }
 
 void *HELPER(sym_setcond_i64)(CPUArchState *env,
@@ -810,44 +641,29 @@ void *HELPER(sym_setcond_i64)(CPUArchState *env,
                               uint64_t arg2, void *arg2_expr,
                               int32_t cond, uint64_t result)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return NULL;
-#else
     return sym_setcond_internal(
         env, arg1, arg1_expr, arg2, arg2_expr, cond, result, 64);
-#endif
 }
 
 void HELPER(sym_notify_call)(uint64_t return_address)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return;
-#else
     _sym_notify_call(return_address);
-#endif
 }
 
 void HELPER(sym_notify_return)(uint64_t return_address)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return;
-#else
     _sym_notify_ret(return_address);
-#endif
 }
 
 void HELPER(sym_notify_block)(uint64_t block_id)
 {
-#ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
-    return;
-#else
     _sym_notify_basic_block(block_id);
-#endif
 }
 
 void HELPER(sym_collect_garbage)(void)
 {
 #ifdef HYBRID_DISABLE_INTERNAL_LIBSYMRUNTIME
+    // for now, we do not support the GC
     return;
 #else
     _sym_collect_garbage();
