@@ -55,6 +55,7 @@ tb_lookup__cpu_state(CPUState *cpu, target_ulong *pc, target_ulong *cs_base,
 
         cpu_get_tb_cpu_state(env, pc, cs_base, flags);
         printf("Resuming emulation from %lx\n", *pc);
+        // printf("RSP: %lx\n", task->emulated_state->regs[R_ESP]);
         hybrid_stub();
         if (last_tb)
             *last_tb = NULL;

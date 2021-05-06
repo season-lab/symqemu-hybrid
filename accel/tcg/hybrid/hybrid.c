@@ -28,6 +28,10 @@
 #include "sysemu/cpus.h"
 #include "sysemu/replay.h"
 
+#define SymExpr void *
+#include "RuntimeCommon.h"
+#undef SymExpr
+
 #define SAVE_GPR(reg, slot)                            \
     "movq $" str(slot) ", %rcx"                        \
                        "\n\t"                          \
@@ -101,6 +105,7 @@ uint64_t shadow_plt[128] = {0};
 uint64_t start_addr = 0;
 static GSList *plt_patches = NULL;
 static GSList *syscall_patches = NULL;
+static GSList *runtime_patches = NULL;
 
 typedef struct
 {
@@ -113,6 +118,18 @@ typedef struct
     char *name;
     GSList *offsets;
 } syscall_patch_t;
+
+typedef struct
+{
+    char *name;
+    uint64_t offset;
+} runtime_plt_patch_t;
+
+typedef struct
+{
+    char *name;
+    GSList *patches;
+} runtime_patch_t;
 
 typedef enum
 {
@@ -160,6 +177,7 @@ static int parse_config_file(char *file)
     char **groups_original = groups;
     while (*groups != NULL)
     {
+        // printf("group %s\n", *groups);
         if (strcmp(*groups, "start_addr") != 0)
         {
             GSList *offsets = NULL;
@@ -182,11 +200,12 @@ static int parse_config_file(char *file)
                 g_strfreev(addrs_original);
             }
 
-            GSList *syscall_offsets = NULL;
+            // GSList *syscall_offsets = NULL;
             addrs = g_key_file_get_string_list(gkf, *groups, "patch_syscall", NULL, NULL);
             if (addrs)
             {
                 char **addrs_original = addrs;
+#if 0
                 while (*addrs != NULL)
                 {
                     uint64_t offset = (target_ulong)strtoull(*addrs, NULL, 16);
@@ -198,7 +217,44 @@ static int parse_config_file(char *file)
                 patch->name = strdup(*groups);
                 patch->offsets = syscall_offsets;
                 syscall_patches = g_slist_append(syscall_patches, (gpointer)patch);
+#endif
                 g_strfreev(addrs_original);
+            }
+
+            char **keys = g_key_file_get_keys(gkf, *groups, NULL, NULL);
+            char **keys_original = keys;
+            runtime_patch_t *runtime_patch = NULL;
+            while (*keys != NULL)
+            {
+                if (strncmp(*keys, "RUNTIME_", 8) == 0)
+                {
+                    if (runtime_patch == NULL)
+                    {
+                        runtime_patch = g_malloc0(sizeof(runtime_patch_t));
+                        runtime_patch->name = strdup(*groups);
+                        runtime_patch->patches = NULL;
+                    }
+
+                    char *name = strdup(*keys + 8);
+                    char *offset = g_key_file_get_value(gkf, *groups, *keys, NULL);
+                    if (offset)
+                    {
+                        // printf("ADDR: %s\n", res);
+                        uint64_t off = (target_ulong)strtoull(offset, NULL, 16);
+                        // printf("name: %s value: %lx\n", name, off);
+
+                        runtime_plt_patch_t *patch = g_malloc0(sizeof(runtime_plt_patch_t));
+                        patch->name = name;
+                        patch->offset = off;
+                        runtime_patch->patches = g_slist_append(runtime_patch->patches, (gpointer)patch);
+                    }
+                }
+                keys++;
+            }
+            g_strfreev(keys_original);
+            if (runtime_patch)
+            {
+                runtime_patches = g_slist_append(runtime_patches, (gpointer)runtime_patch);
             }
         }
         groups++;
@@ -392,6 +448,8 @@ void save_native_context_clobber_syscall(uint64_t rsp, uint64_t *save_area)
         }
         else
             break;
+
+        break;
     }
 
     switch (save_area[0])
@@ -839,6 +897,41 @@ __asm__(
     // ".cfi_endproc"
 );
 
+typedef struct
+{
+    uint64_t addr;
+    uint64_t arg6;
+    uint64_t arg5;
+    uint64_t arg4;
+    uint64_t arg3;
+    uint64_t arg2;
+    uint64_t arg1;
+} runtime_stub_args_t;
+
+extern void dummy_runtime_plt_stub(void);
+__asm__(
+    ".globl dummy_runtime_plt_stub\n\t"
+    //
+    // ".type func, @function\n\t"
+    "dummy_runtime_plt_stub:\n\t"
+    // ".cfi_startproc\n\t"
+    //
+    "pushq %rdi\n\t"
+    "pushq %rsi\n\t"
+    "pushq %rdx\n\t"
+    "pushq %rcx\n\t"
+    "pushq %r8\n\t"
+    "pushq %r9\n\t"
+    "movabsq $0xCAFECAFECAFECAFE, %rdi\n"
+    "pushq %rdi\n"
+    "movq %rsp, %rdi\n\t"
+    "call save_native_context_safe\n\t"
+    "leaq 56(%rsp), %rsp\n\t"
+    "ret"
+    //
+    // ".cfi_endproc"
+);
+
 void return_handler_from_emulation(void)
 {
     assert(0 && "Thos should never be executed since QEMU should intercept it.");
@@ -857,6 +950,12 @@ void switch_to_emulated(int plt_entry)
     *(ret_addr) = (uint64_t)return_handler_from_emulation;
     assert(plt_entry >= 0 && plt_entry < 128);
     task->emulated_state->eip = shadow_plt[plt_entry];
+
+    uint64_t base;
+    arch_prctl(ARCH_GET_FS, (uint64_t)&base);
+    arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
+    _sym_notify_call((uint64_t)return_handler_from_emulation);
+    arch_prctl(ARCH_SET_FS, base);
 
     // return into QEMU
 #if 0
@@ -881,6 +980,7 @@ void switch_to_emulated(int plt_entry)
 
 #define PLT_STUBS_SIZE 1024 * 1024 // 1 MiB
 static uint8_t plt_stubs[PLT_STUBS_SIZE];
+static uint8_t runtime_plt_stubs[PLT_STUBS_SIZE];
 
 //__thread
 int hybrid_init_done = 0;
@@ -901,6 +1001,91 @@ void hybrid_init(void)
 
     assert(start_addr);
     hybrid_init_done = 1;
+}
+
+#define SymExpr void *
+#include "RuntimeCommon.h"
+
+#define RUNTIME_FN_PTR(name, f)                       \
+    if (strcmp(name, #f) == 0)                        \
+    {                                                 \
+        printf("Runtime function %s: %p\n", name, f); \
+        return (uint64_t)&f;                          \
+    }
+
+static uint64_t get_runtime_function_addr(char *name)
+{
+    if (strcmp(name, "fread_symbolized") == 0)
+    {
+        tcg_abort();
+    }
+    if (strcmp(name, "fopen_symbolized") == 0)
+    {
+        tcg_abort();
+    }
+
+    RUNTIME_FN_PTR(name, _sym_notify_basic_block);
+    RUNTIME_FN_PTR(name, _sym_build_equal);
+    RUNTIME_FN_PTR(name, _sym_build_mul);
+    RUNTIME_FN_PTR(name, _sym_build_integer);
+    RUNTIME_FN_PTR(name, _sym_notify_call);
+    RUNTIME_FN_PTR(name, _sym_notify_ret);
+    RUNTIME_FN_PTR(name, _sym_read_memory);
+    RUNTIME_FN_PTR(name, _sym_write_memory);
+    RUNTIME_FN_PTR(name, _sym_get_return_expression);
+    RUNTIME_FN_PTR(name, _sym_set_return_expression);
+    RUNTIME_FN_PTR(name, _sym_push_path_constraint);
+    RUNTIME_FN_PTR(name, _sym_build_not_equal);
+    RUNTIME_FN_PTR(name, _sym_build_add);
+    RUNTIME_FN_PTR(name, _sym_build_null_pointer);
+    RUNTIME_FN_PTR(name, _sym_build_sext);
+    RUNTIME_FN_PTR(name, _sym_get_parameter_expression);
+    RUNTIME_FN_PTR(name, _sym_set_parameter_expression);
+    RUNTIME_FN_PTR(name, _sym_build_signed_greater_than);
+    RUNTIME_FN_PTR(name, _sym_build_signed_less_than);
+    RUNTIME_FN_PTR(name, _sym_build_trunc);
+    RUNTIME_FN_PTR(name, _sym_build_and);
+    RUNTIME_FN_PTR(name, _sym_get_return_expression_with_truncate);
+    RUNTIME_FN_PTR(name, _sym_set_int_parameter_expression);
+    RUNTIME_FN_PTR(name, _sym_is_int_parameter);
+    RUNTIME_FN_PTR(name, _sym_set_args_count);
+    RUNTIME_FN_PTR(name, _sym_build_arithmetic_shift_right);
+    RUNTIME_FN_PTR(name, _sym_build_shift_left);
+
+    printf("%s\n", name);
+    tcg_abort();
+    return 0;
+}
+
+static uint64_t runtime_function_handler(runtime_stub_args_t *args)
+{
+    task_t *task = get_task();
+    uint64_t base;
+    arch_prctl(ARCH_GET_FS, (uint64_t)&base);
+    arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
+    printf("FN %lx: arg1=%lx, arg2=%lx, arg3=%lx\n", args->addr, args->arg1, args->arg2, args->arg3);
+    if (args->addr == 0)
+        tcg_abort();
+    uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) = (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t))args->addr;
+
+    uint64_t res = f(args->arg1, args->arg2, args->arg3, args->arg4, args->arg5, args->arg6);
+    arch_prctl(ARCH_SET_FS, base);
+    return res;
+}
+
+static inline TCGTemp *tcg_find_temp_arch_reg(const char *reg_name)
+{
+    for (int i = 0; i < TCG_TARGET_NB_REGS; i++)
+    {
+        TCGTemp *t = &tcg_ctx->temps[i];
+        if (t->fixed_reg)
+            continue; // not a register
+        if (strcmp(t->name, reg_name) == 0)
+            return t;
+    }
+    // printf("Cannot find TCG for %s\n", reg_name);
+    // tcg_abort();
+    return NULL;
 }
 
 void switch_to_native(uint64_t target, CPUX86State *state)
@@ -928,6 +1113,8 @@ void switch_to_native(uint64_t target, CPUX86State *state)
     {
         mprotect(PAGE_ALIGNED(plt_stubs), PAGE_ALIGNED_SIZE(plt_stubs, sizeof(plt_stubs)),
                  PROT_EXEC | PROT_READ | PROT_WRITE);
+        mprotect(PAGE_ALIGNED(runtime_plt_stubs), PAGE_ALIGNED_SIZE(runtime_plt_stubs, sizeof(runtime_plt_stubs)),
+                 PROT_EXEC | PROT_READ | PROT_WRITE);
 
         int plt_stubs_count = 0;
         uint8_t *plt_stub = (uint8_t *)&plt_stubs;
@@ -941,18 +1128,32 @@ void switch_to_native(uint64_t target, CPUX86State *state)
             int is_main_image = strcmp(name, "main_image") == 0;
             if (!is_main_image)
             {
-                // ToDo
-            }
-            if (!is_main_image)
-            {
-                continue;
+                GSList *next_mmaped_file = mmaped_files;
+                int mmaped_file_found = 0;
+                while (next_mmaped_file != NULL)
+                {
+                    mmap_file_t *mmaped_file = (mmap_file_t *)next_mmaped_file->data;
+                    next_mmaped_file = g_slist_next(next_mmaped_file);
+
+                    if (strcmp(mmaped_file->name, patch->name) == 0)
+                    {
+                        mmaped_file_found = 1;
+                        base_address = mmaped_file->addr;
+                        break;
+                    }
+                }
+                if (!mmaped_file_found)
+                {
+                    printf("PLT PATCH ON %s NOT FOUND\n", patch->name);
+                    tcg_abort();
+                }
             }
 
             GSList *offsets = patch->offsets;
             while (offsets != NULL)
             {
                 uint64_t offset = (uint64_t)offsets->data;
-                // printf("[%s] OFFSET: %lx\n", name, offset);
+                printf("[%s] BASE=%lx OFFSET: %lx\n", name, base_address, offset);
                 offsets = g_slist_next(offsets);
 
                 void **plt = (void **)(base_address + offset);
@@ -972,8 +1173,12 @@ void switch_to_native(uint64_t target, CPUX86State *state)
 
                 *((uint32_t *)&plt_stub[6]) = (uint32_t)delta; // relative offset
 
-                printf("[%s] PLT entry %d: %p => %p %p\n", name, plt_stubs_count, plt[0], dummy_plt_stub, plt_stub);
+                printf("[%s] PLT entry %d at %llx: %p => %p %p\n", name, plt_stubs_count, &plt[0], plt[0], dummy_plt_stub, plt_stub);
                 shadow_plt[plt_stubs_count] = (uint64_t)plt[0];
+
+                uint8_t *a = PAGE_ALIGNED(&plt[0]);
+                mprotect(a, getpagesize(), PROT_EXEC | PROT_READ | PROT_WRITE);
+
                 plt[0] = plt_stub;
 
                 plt_stubs_count++;
@@ -1051,7 +1256,120 @@ void switch_to_native(uint64_t target, CPUX86State *state)
                 }
             }
         }
+
+        int runtime_stubs_count = 0;
+        uint8_t *runtime_stub = (uint8_t *)&runtime_plt_stubs;
+        next = runtime_patches;
+        while (next != NULL)
+        {
+            runtime_patch_t *patch = (runtime_patch_t *)next->data;
+            next = g_slist_next(next);
+
+            printf("RUNTIME PATCH ON %s\n", patch->name);
+
+            uint64_t base_address = 0x0;
+            if (strcmp("main_image", patch->name) != 0)
+            {
+                GSList *next_mmaped_file = mmaped_files;
+                int mmaped_file_found = 0;
+                while (next_mmaped_file != NULL)
+                {
+                    mmap_file_t *mmaped_file = (mmap_file_t *)next_mmaped_file->data;
+                    next_mmaped_file = g_slist_next(next_mmaped_file);
+
+                    if (strcmp(mmaped_file->name, patch->name) == 0)
+                    {
+                        // printf("SYSCALL PATCH ON %s FOUND\n", patch->name);
+                        mmaped_file_found = 1;
+                        base_address = mmaped_file->addr;
+                        break;
+                    }
+                }
+                if (!mmaped_file_found)
+                {
+                    printf("RUNTIME PATCH ON %s NOT FOUND\n", patch->name);
+                    tcg_abort();
+                }
+            }
+
+            GSList *runtime_plt = patch->patches;
+            while (runtime_plt != 0)
+            {
+                runtime_plt_patch_t *p = (runtime_plt_patch_t *)runtime_plt->data;
+                runtime_plt = g_slist_next(runtime_plt);
+
+                if (strcmp("_sym_initialize", p->name) == 0)
+                    continue;
+
+                // printf("RUNTIME PATCH FOR FUNCTION %s\n", p->name);
+
+                void **plt = (void **)(base_address + p->offset);
+
+                // printf("[%s] RUNTIME PLT entry %s at %p\n", patch->name, p->name, plt);
+
+                memcpy(runtime_stub, dummy_runtime_plt_stub, 64);
+
+                assert(runtime_stub[8] == 0x48);                                       // movaps opcode
+                *((uint64_t *)&runtime_stub[10]) = get_runtime_function_addr(p->name); // pushed constant
+
+                assert(runtime_stub[22] == 0xe8); // relative call
+                uint64_t rip = (uint64_t)&runtime_stub[27];
+                uint64_t delta;
+                if (((uint64_t)runtime_function_handler) > rip)
+                    delta = ((uint64_t)runtime_function_handler) - rip;
+                else
+                    delta = -(rip - ((uint64_t)runtime_function_handler));
+
+                *((uint32_t *)&runtime_stub[23]) = (uint32_t)delta; // relative offset
+
+                uint8_t *a = PAGE_ALIGNED(&plt[0]);
+                mprotect(a, getpagesize(), PROT_EXEC | PROT_READ | PROT_WRITE);
+
+                // printf("OLD: %p - NEW: %p - RETURN_HANLDERL %p\n", plt[0], runtime_stub, return_handler_from_emulation);
+
+                plt[0] = runtime_stub;
+
+                runtime_stubs_count++;
+                runtime_stub += 64;
+                assert(runtime_stub < runtime_plt_stubs + sizeof(runtime_plt_stubs));
+            }
+        }
     }
+
+    TCGTemp *ret_val_ts = tcg_find_temp_arch_reg("rax_expr");
+    assert(ret_val_ts->symbolic_expression == 1);
+    assert(ret_val_ts->mem_coherent == 1);
+    assert(ret_val_ts->val_type == TEMP_VAL_MEM);
+    uint64_t **ret_val_expr = (uint64_t **)((uint64_t)ret_val_ts->mem_offset + (uint64_t)task->emulated_state);
+    if (*ret_val_expr)
+    {
+        size_t current_bits = _sym_bits_helper(*ret_val_expr);
+        if (current_bits < 64)
+        {
+            *ret_val_expr = _sym_build_zext(*ret_val_expr, 64 - current_bits);
+        }
+        const char *s_expr = _sym_expr_to_string(*ret_val_expr);
+        printf("RETURN EXP: len=%d %s\n", current_bits, s_expr);
+        _sym_set_return_expression(*ret_val_expr);
+    }
+#if 0
+    void* expr = _sym_get_parameter_expression(0);
+    if (expr) {
+        size_t current_bits = _sym_bits_helper(expr);
+        if (current_bits < 64) {
+            expr = _sym_build_zext(expr, 64 - current_bits);
+        }
+        
+        assert(arg0->symbolic_expression == 1);
+        assert(arg0->mem_coherent == 1);
+        assert(arg0->val_type == TEMP_VAL_MEM);
+        uint64_t** arg0_expr = (uint64_t**) ((uint64_t)arg0->mem_offset + (uint64_t)task->emulated_state);
+        char* s_expr = _sym_expr_to_string(expr);
+        printf("WRITING TO %llx EXPR %llx: %s\n", arg0_expr, expr, s_expr);
+
+        *arg0_expr = expr;
+    }
+#endif
 
 #if 0
     uint64_t base;
@@ -1118,6 +1436,91 @@ void switch_to_native(uint64_t target, CPUX86State *state)
         printf("*[NATIVE RSP + 8]: %lx\n", *((uint64_t*)(native_cpu_context.gpr[SLOT_RSP] + 8)));
         for (int i = 0; i < SLOT_GPR_END; i++)
             printf("R[%d] = %lx vs %lx vs %lx\n", i, native_cpu_context.gpr[i], emulated_cpu_context.gpr[i], emulated_state->regs[i]);
+#endif
+
+        const char *arg_regs[] = {
+            "rdi_expr",
+            "rsi_expr",
+            "rdx_expr",
+            "rcx_expr",
+            "r8_expr",
+            "r9_expr",
+            //
+            "rax_expr",
+            "rbx_expr",
+            "r10_expr",
+            "r11_expr",
+            "r12_expr",
+            "r13_expr",
+            "r14_expr",
+            "r15_expr",
+        };
+
+        uint8_t args_count = _sym_get_args_count();
+        printf("Argument count: %d\n", args_count);
+        int int_arg_count = 0;
+        for (int i = 0; i < args_count; i++)
+        {
+            void *expr = _sym_get_parameter_expression(i);
+            uint8_t is_int = _sym_is_int_parameter(i);
+            printf("Argument %d is int: %d\n", i, is_int);
+
+            if (is_int)
+            {
+                if (int_arg_count < 6)
+                {
+                    printf("Setting symbolic regs: %s\n", arg_regs[int_arg_count]);
+                    TCGTemp *arg = tcg_find_temp_arch_reg(arg_regs[int_arg_count]);
+                    if (arg)
+                    {
+                        assert(arg->symbolic_expression == 1);
+                        assert(arg->mem_coherent == 1);
+                        assert(arg->val_type == TEMP_VAL_MEM);
+                        uint64_t **arg_expr = (uint64_t **)((uint64_t)arg->mem_offset + (uint64_t)task->emulated_state);
+                        if (expr)
+                        {
+                            size_t current_bits = _sym_bits_helper(expr);
+                            if (current_bits < 64)
+                            {
+                                expr = _sym_build_zext(expr, 64 - current_bits);
+                            }
+                            const char *s_expr = _sym_expr_to_string(expr);
+                            printf("%s: %s\n", arg_regs[int_arg_count], s_expr);
+                        }
+                        *arg_expr = expr;
+                    }
+                }
+                else
+                {
+                    uint64_t arg_stack_index = int_arg_count - 6;
+                    printf("ESP: %lx\n", task->emulated_state->regs[SLOT_RSP]);
+                    printf("NATIVE RSP: %lx\n", task->native_context->gpr[SLOT_RSP]);
+                    uint64_t arg_stack_addr = task->emulated_state->regs[SLOT_RSP] + (arg_stack_index + 1) * 8;
+                    if (expr)
+                    {
+                        size_t current_bits = _sym_bits_helper(expr);
+                        if (current_bits < 64)
+                        {
+                            expr = _sym_build_zext(expr, 64 - current_bits);
+                        }
+                        const char *s_expr = _sym_expr_to_string(expr);
+                        printf("stack_arg[%d]: %s\n", arg_stack_index, s_expr);
+                    }
+                    _sym_write_memory(arg_stack_addr, 8, expr, 1);
+                }
+                int_arg_count++;
+            }
+        }
+#if 0
+        for (int i = int_arg_count; i < sizeof(arg_regs) / sizeof(char *); i++)
+        {
+            TCGTemp *arg = tcg_find_temp_arch_reg(arg_regs[int_arg_count]);
+            assert(arg->symbolic_expression == 1);
+            assert(arg->mem_coherent == 1);
+            assert(arg->val_type == TEMP_VAL_MEM);
+            uint64_t **arg_expr = (uint64_t **)((uint64_t)arg->mem_offset + (uint64_t)task->emulated_state);
+            *arg_expr = NULL;
+        }
 #endif
     }
 }
