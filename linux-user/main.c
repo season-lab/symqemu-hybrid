@@ -645,7 +645,7 @@ int main(int argc, char **argv, char **envp)
     trace_init_file(trace_file);
 
     /* Initialize the symbolic backend */
-    _sym_initialize();
+    _sym_initialize_qemu();
 
     /* Zero out regs */
     memset(regs, 0, sizeof(struct target_pt_regs));
