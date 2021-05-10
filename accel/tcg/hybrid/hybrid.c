@@ -1076,7 +1076,7 @@ static uint64_t runtime_function_handler(runtime_stub_args_t *args)
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
-    printf("FN %lx: arg1=%lx, arg2=%lx, arg3=%lx\n", args->addr, args->arg1, args->arg2, args->arg3);
+    // printf("FN %lx: arg1=%lx, arg2=%lx, arg3=%lx\n", args->addr, args->arg1, args->arg2, args->arg3);
     if (args->addr == 0)
         tcg_abort();
     uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) = (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t))args->addr;
@@ -1186,7 +1186,7 @@ void switch_to_native(uint64_t target, CPUX86State *state)
 
                 *((uint32_t *)&plt_stub[6]) = (uint32_t)delta; // relative offset
 
-                printf("[%s] PLT entry %d at %llx: %p => %p %p\n", name, plt_stubs_count, &plt[0], plt[0], dummy_plt_stub, plt_stub);
+                printf("[%s] PLT entry %d at %p: %p => %p %p\n", name, plt_stubs_count, &plt[0], plt[0], dummy_plt_stub, plt_stub);
                 shadow_plt[plt_stubs_count] = (uint64_t)plt[0];
 
                 uint8_t *a = PAGE_ALIGNED(&plt[0]);
@@ -1361,8 +1361,8 @@ void switch_to_native(uint64_t target, CPUX86State *state)
         {
             *ret_val_expr = _sym_build_zext(*ret_val_expr, 64 - current_bits);
         }
-        const char *s_expr = _sym_expr_to_string(*ret_val_expr);
-        printf("RETURN EXP: len=%d %s\n", current_bits, s_expr);
+        // const char *s_expr = _sym_expr_to_string(*ret_val_expr);
+        // printf("RETURN EXP: len=%ld %s\n", current_bits, s_expr);
         _sym_set_return_expression(*ret_val_expr);
     }
 #if 0
@@ -1431,8 +1431,8 @@ void switch_to_native(uint64_t target, CPUX86State *state)
         }
 #endif
 
-        __m128i xmm0 = _mm_loadu_si128(&task->emulated_state->xmm_regs[0]);
-        __m128i xmm1 = _mm_loadu_si128(&task->emulated_state->xmm_regs[1]);
+        __m128i xmm0 = _mm_loadu_si128((__m128i_u const *) &task->emulated_state->xmm_regs[0]);
+        __m128i xmm1 = _mm_loadu_si128((__m128i_u const *) &task->emulated_state->xmm_regs[1]);
         __asm__("movups %0, %%xmm0\n"
                 "movups %0, %%xmm1\n"
             :
@@ -1478,19 +1478,19 @@ void switch_to_native(uint64_t target, CPUX86State *state)
         };
 
         uint8_t args_count = _sym_get_args_count();
-        printf("Argument count: %d\n", args_count);
+        // printf("Argument count: %d\n", args_count);
         int int_arg_count = 0;
         for (int i = 0; i < args_count; i++)
         {
             void *expr = _sym_get_parameter_expression(i);
             uint8_t is_int = _sym_is_int_parameter(i);
-            printf("Argument %d is int: %d\n", i, is_int);
+            // printf("Argument %d is int: %d\n", i, is_int);
 
             if (is_int)
             {
                 if (int_arg_count < 6)
                 {
-                    printf("Setting symbolic regs: %s\n", arg_regs[int_arg_count]);
+                    // printf("Setting symbolic regs: %s\n", arg_regs[int_arg_count]);
                     TCGTemp *arg = tcg_find_temp_arch_reg(arg_regs[int_arg_count]);
                     if (arg)
                     {
@@ -1505,8 +1505,8 @@ void switch_to_native(uint64_t target, CPUX86State *state)
                             {
                                 expr = _sym_build_zext(expr, 64 - current_bits);
                             }
-                            const char *s_expr = _sym_expr_to_string(expr);
-                            printf("%s: %s\n", arg_regs[int_arg_count], s_expr);
+                            // const char *s_expr = _sym_expr_to_string(expr);
+                            // printf("%s: %s\n", arg_regs[int_arg_count], s_expr);
                         }
                         *arg_expr = expr;
                     }
@@ -1514,9 +1514,9 @@ void switch_to_native(uint64_t target, CPUX86State *state)
                 else
                 {
                     uint64_t arg_stack_index = int_arg_count - 6;
-                    printf("ESP: %lx\n", task->emulated_state->regs[SLOT_RSP]);
-                    printf("offset(xmm_regs): %x\n", offsetof(CPUX86State, xmm_regs));
-                    printf("NATIVE RSP: %lx\n", task->native_context->gpr[SLOT_RSP]);
+                    // printf("ESP: %lx\n", task->emulated_state->regs[SLOT_RSP]);
+                    // printf("offset(xmm_regs): %x\n", offsetof(CPUX86State, xmm_regs));
+                    // printf("NATIVE RSP: %lx\n", task->native_context->gpr[SLOT_RSP]);
                     uint64_t arg_stack_addr = task->emulated_state->regs[SLOT_RSP] + (arg_stack_index + 1) * 8;
                     if (expr)
                     {
@@ -1525,10 +1525,10 @@ void switch_to_native(uint64_t target, CPUX86State *state)
                         {
                             expr = _sym_build_zext(expr, 64 - current_bits);
                         }
-                        const char *s_expr = _sym_expr_to_string(expr);
-                        printf("stack_arg[%d]: %s\n", arg_stack_index, s_expr);
+                        // const char *s_expr = _sym_expr_to_string(expr);
+                        // printf("stack_arg[%d]: %s\n", arg_stack_index, s_expr);
                     }
-                    _sym_write_memory(arg_stack_addr, 8, expr, 1);
+                    _sym_write_memory((uint8_t*)arg_stack_addr, 8, expr, 1);
                 }
                 int_arg_count++;
             }
