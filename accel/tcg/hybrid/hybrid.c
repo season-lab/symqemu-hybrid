@@ -28,6 +28,8 @@
 #include "sysemu/cpus.h"
 #include "sysemu/replay.h"
 
+#include <immintrin.h>
+
 #define SymExpr void *
 #include "RuntimeCommon.h"
 #undef SymExpr
@@ -761,6 +763,14 @@ void save_native_context_clobber(uint64_t rsp, uint64_t *save_area)
 
     // valid flag
     context->valid = 1;
+
+    // arch_prctl(ARCH_SET_FS, (uint64_t) task->qemu_context->fs_base);
+    for (int i = 0; i < 8; i++)
+    {
+        task->emulated_state->xmm_regs[i]._q_ZMMReg[0] = save_area[-17 - (2*i)];
+        task->emulated_state->xmm_regs[i]._q_ZMMReg[1] = save_area[-18 - (2*i)];
+    }
+    // arch_prctl(ARCH_SET_FS, (uint64_t) context->fs_base);
 }
 
 void save_native_context_safe(void);
@@ -770,9 +780,11 @@ __asm__(
     ".type func, @function\n"
     "save_native_context_safe:\n"
     ".cfi_startproc\n\t"
+#define PRESERVE_XMM
 #define SAVE_ROUTINE save_native_context_clobber
 #include "save_context_safe.h"
 #undef SAVE_ROUTINE
+#undef PRESERVE_XMM
     //
     "popq %rdi\n" // plt entry index
     "call switch_to_emulated\n"
@@ -1051,6 +1063,7 @@ static uint64_t get_runtime_function_addr(char *name)
     RUNTIME_FN_PTR(name, _sym_set_args_count);
     RUNTIME_FN_PTR(name, _sym_build_arithmetic_shift_right);
     RUNTIME_FN_PTR(name, _sym_build_shift_left);
+    RUNTIME_FN_PTR(name, _sym_build_float_to_float);
 
     printf("%s\n", name);
     tcg_abort();
@@ -1418,6 +1431,14 @@ void switch_to_native(uint64_t target, CPUX86State *state)
         }
 #endif
 
+        __m128i xmm0 = _mm_loadu_si128(&task->emulated_state->xmm_regs[0]);
+        __m128i xmm1 = _mm_loadu_si128(&task->emulated_state->xmm_regs[1]);
+        __asm__("movups %0, %%xmm0\n"
+                "movups %0, %%xmm1\n"
+            :
+            : "m"(xmm0), "m"(xmm1)
+            : "xmm0", "xmm1");
+
         restore_native_context(task->emulated_context, target);
     }
     else
@@ -1494,6 +1515,7 @@ void switch_to_native(uint64_t target, CPUX86State *state)
                 {
                     uint64_t arg_stack_index = int_arg_count - 6;
                     printf("ESP: %lx\n", task->emulated_state->regs[SLOT_RSP]);
+                    printf("offset(xmm_regs): %x\n", offsetof(CPUX86State, xmm_regs));
                     printf("NATIVE RSP: %lx\n", task->native_context->gpr[SLOT_RSP]);
                     uint64_t arg_stack_addr = task->emulated_state->regs[SLOT_RSP] + (arg_stack_index + 1) * 8;
                     if (expr)
