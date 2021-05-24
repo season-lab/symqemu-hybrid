@@ -4988,53 +4988,110 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             }
             break;
         case 6: /* div */
+#ifdef SYM_HELPERS
+            {
+            TCGv zero = tcg_const_tl(0);
+            TCGv reg_id_eax = tcg_const_tl(R_EAX);
+            TCGv reg_id_edx = tcg_const_tl(R_EDX);
+            gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EAX]), reg_id_eax);
+            gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EDX]), reg_id_edx);
+            gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+#endif
             switch(ot) {
             case MO_8:
+#ifdef SYM_HELPERS
+                // this helper does not actually use RDX...
+                gen_helper_divb_AL_symbolized(cpu_env, s->T0);
+#else
                 gen_helper_divb_AL(cpu_env, s->T0);
+#endif
                 break;
             case MO_16:
+#ifdef SYM_HELPERS
+                gen_helper_divw_AX_symbolized(cpu_env, s->T0);
+#else
                 gen_helper_divw_AX(cpu_env, s->T0);
+#endif
                 break;
             default:
             case MO_32:
+#ifdef SYM_HELPERS
+                gen_helper_divl_EAX_symbolized(cpu_env, s->T0);
+#else
                 gen_helper_divl_EAX(cpu_env, s->T0);
+#endif
                 break;
 #ifdef TARGET_X86_64
             case MO_64:
+#ifdef SYM_HELPERS
+                gen_helper_divq_EAX_symbolized(cpu_env, s->T0);
+#else
                 gen_helper_divq_EAX(cpu_env, s->T0);
+#endif
                 break;
 #endif
             }
+#ifdef SYM_HELPERS
+            gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EAX]), cpu_env, reg_id_eax);
+            gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EDX]), cpu_env, reg_id_edx);
+            tcg_temp_free(zero);
+            tcg_temp_free(reg_id_eax);
+            tcg_temp_free(reg_id_edx);
+            }
+#endif
             break;
         case 7: /* idiv */
+#ifdef SYM_HELPERS
+            {
+            TCGv zero = tcg_const_tl(0);
+            TCGv reg_id_eax = tcg_const_tl(R_EAX);
+            TCGv reg_id_edx = tcg_const_tl(R_EDX);
+            gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EAX]), reg_id_eax);
+            gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EDX]), reg_id_edx);
+            gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+#endif
             switch(ot) {
             case MO_8:
+#ifdef SYM_HELPERS
+                // this helper does not actually use RDX...
+                gen_helper_idivb_AL_symbolized(cpu_env, s->T0);
+#else
                 gen_helper_idivb_AL(cpu_env, s->T0);
+#endif
                 break;
             case MO_16:
+#ifdef SYM_HELPERS
+                gen_helper_idivw_AX_symbolized(cpu_env, s->T0);
+#else
                 gen_helper_idivw_AX(cpu_env, s->T0);
+#endif
                 break;
             default:
             case MO_32:;
-                TCGv zero = tcg_const_tl(0);
-                TCGv reg_id_eax = tcg_const_tl(R_EAX);
-                TCGv reg_id_edx = tcg_const_tl(R_EDX);
-                gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EAX]), reg_id_eax);
-                gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EDX]), reg_id_edx);
-                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+#ifdef SYM_HELPERS
                 gen_helper_idivl_EAX_symbolized(cpu_env, s->T0);
-                gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EAX]), cpu_env, reg_id_eax);
-                gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EDX]), cpu_env, reg_id_edx);
-                tcg_temp_free(zero);
-                tcg_temp_free(reg_id_eax);
-                tcg_temp_free(reg_id_edx);
+#else
+                gen_helper_idivl_EAX(cpu_env, s->T0);
+#endif
                 break;
 #ifdef TARGET_X86_64
             case MO_64:
+#ifdef SYM_HELPERS
+                gen_helper_idivq_EAX_symbolized(cpu_env, s->T0);
+#else
                 gen_helper_idivq_EAX(cpu_env, s->T0);
+#endif
                 break;
 #endif
             }
+#ifdef SYM_HELPERS
+            gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EAX]), cpu_env, reg_id_eax);
+            gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EDX]), cpu_env, reg_id_edx);
+            tcg_temp_free(zero);
+            tcg_temp_free(reg_id_eax);
+            tcg_temp_free(reg_id_edx);
+            }
+#endif
             break;
         default:
             goto unknown_op;
