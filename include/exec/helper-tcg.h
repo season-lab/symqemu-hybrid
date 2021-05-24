@@ -64,6 +64,10 @@
 #include "tcg-runtime.h"
 #include "tcg-runtime-sym.h"
 
+/* HYBRID */
+#include "../../../sym_helpers/gen_sym_helpers.h"
+/* HYBRID */
+
 #undef str
 #undef DEF_HELPER_FLAGS_0
 #undef DEF_HELPER_FLAGS_1

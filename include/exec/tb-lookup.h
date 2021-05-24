@@ -30,7 +30,7 @@ tb_lookup__cpu_state(CPUState *cpu, target_ulong *pc, target_ulong *cs_base,
     cpu_get_tb_cpu_state(env, pc, cs_base, flags);
     
     /* HYBRID */
-    // printf("EIP: %lx\n", pc);
+    // printf("EIP: %lx\n", *pc);
     int fetch_again_cpu_state = 0;
     SWITCH_TO_NATIVE(*pc, env, &fetch_again_cpu_state);
     // THIS IS IMPORTANT: compiler may reorder some assignments!
@@ -56,7 +56,7 @@ tb_lookup__cpu_state(CPUState *cpu, target_ulong *pc, target_ulong *cs_base,
         cpu_get_tb_cpu_state(env, pc, cs_base, flags);
         printf("Resuming emulation from %lx\n", *pc);
         // printf("RSP: %lx\n", task->emulated_state->regs[R_ESP]);
-        hybrid_stub();
+        hybrid_stub(task);
         if (last_tb)
             *last_tb = NULL;
     }

@@ -19,7 +19,6 @@ void switch_to_native(uint64_t target, CPUX86State *env);
 void switch_back_to_native(uint64_t target, CPUX86State *env);
 extern void save_native_context(void);
 extern void return_handler_from_emulation(void);
-void hybrid_stub(void);
 void hybrid_init(void);
 void hybrid_syscall(uint64_t retval,
                     uint64_t num, uint64_t arg1, uint64_t arg2,
@@ -42,6 +41,7 @@ typedef struct
 } task_t;
 
 task_t *get_task(void);
+void hybrid_stub(task_t* task);
 
 #define SWITCH_TO_NATIVE(target, state, flag)                           \
     do                                                                  \

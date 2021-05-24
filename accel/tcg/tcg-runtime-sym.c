@@ -613,6 +613,10 @@ static void *sym_setcond_internal(CPUArchState *env,
     }
 
     void *condition = handler(arg1_expr, arg2_expr);
+#if 1
+    const char *s_expr = _sym_expr_to_string(condition);
+    printf("QUERY AT %lx: %s\n", get_pc(env), s_expr);
+#endif
     _sym_push_path_constraint(condition, result, get_pc(env));
 
     return _sym_build_bool_to_bits(condition, result_bits);

@@ -40,6 +40,10 @@ dh_ctype(ret) HELPER(name) (dh_ctype(t1), dh_ctype(t2), dh_ctype(t3), \
 #include "tcg-runtime.h"
 #include "tcg-runtime-sym.h"
 
+/* HYBRID */
+#include "../../../sym_helpers/gen_sym_helpers.h"
+/* HYBRID */
+
 #undef DEF_HELPER_FLAGS_0
 #undef DEF_HELPER_FLAGS_1
 #undef DEF_HELPER_FLAGS_2

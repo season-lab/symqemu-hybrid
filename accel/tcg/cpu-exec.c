@@ -408,6 +408,7 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     uint32_t flags;
 
     tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, cf_mask, &last_tb);
+    // last_tb = NULL;
     if (tb == NULL) {
         mmap_lock();
         tb = tb_gen_code(cpu, pc, cs_base, flags, cf_mask);

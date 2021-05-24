@@ -32,6 +32,8 @@
 #include "trace-tcg.h"
 #include "exec/log.h"
 
+#include "../../../sym_helpers/sym_helpers.h"
+
 #define PREFIX_REPZ   0x01
 #define PREFIX_REPNZ  0x02
 #define PREFIX_LOCK   0x04
@@ -708,8 +710,8 @@ static void gen_compute_eflags(DisasContext *s)
     /* Take care to not read values that are not live.  */
     live = cc_op_live[s->cc_op] & ~USES_CC_SRCT;
     dead = live ^ (USES_CC_DST | USES_CC_SRC | USES_CC_SRC2);
+    zero = tcg_const_tl(0);
     if (dead) {
-        zero = tcg_const_tl(0);
         if (dead & USES_CC_DST) {
             dst = zero;
         }
@@ -722,12 +724,16 @@ static void gen_compute_eflags(DisasContext *s)
     }
 
     gen_update_cc_op(s);
+#ifdef SYM_HELPERS
+    gen_helper_sym_init_args_4(tcgv_i64_expr(zero), tcgv_i64_expr(dst), tcgv_i64_expr(src1), tcgv_i64_expr(src2), (TCGv_ptr) zero);
+    gen_helper_cc_compute_all_symbolized(cpu_cc_src, dst, src1, src2, cpu_cc_op);
+    gen_helper_sym_set_return_value(tcgv_i64_expr(cpu_cc_src), tcgv_i64_expr(zero));
+#else
     gen_helper_cc_compute_all(cpu_cc_src, dst, src1, src2, cpu_cc_op);
+#endif
     set_cc_op(s, CC_OP_EFLAGS);
 
-    if (dead) {
-        tcg_temp_free(zero);
-    }
+    tcg_temp_free(zero);
 }
 
 typedef struct CCPrepare {
@@ -807,8 +813,18 @@ static CCPrepare gen_prepare_eflags_c(DisasContext *s, TCGv reg)
        /* The need to compute only C from CC_OP_DYNAMIC is important
           in efficiently implementing e.g. INC at the start of a TB.  */
        gen_update_cc_op(s);
+#ifdef SYM_HELPERS
+        TCGv zero = tcg_const_tl(0);
+        gen_helper_sym_init_args_4(tcgv_i64_expr(zero), tcgv_i64_expr(cpu_cc_dst), 
+                                tcgv_i64_expr(cpu_cc_src), tcgv_i64_expr(cpu_cc_src2), (TCGv_ptr) zero);
+        gen_helper_cc_compute_c_symbolized(reg, cpu_cc_dst, cpu_cc_src,
+                               cpu_cc_src2, cpu_cc_op);
+        gen_helper_sym_set_return_value(tcgv_i64_expr(reg), tcgv_i64_expr(zero));
+        tcg_temp_free(zero);
+#else
        gen_helper_cc_compute_c(reg, cpu_cc_dst, cpu_cc_src,
                                cpu_cc_src2, cpu_cc_op);
+#endif
        return (CCPrepare) { .cond = TCG_COND_NE, .reg = reg,
                             .mask = -1, .no_setcond = true };
     }
@@ -4472,7 +4488,11 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
         default:
             tcg_gen_addi_ptr(s->ptr0, cpu_env, op1_offset);
             tcg_gen_addi_ptr(s->ptr1, cpu_env, op2_offset);
-            sse_fn_epp(cpu_env, s->ptr0, s->ptr1);
+
+            if (sse_fn_epp == gen_helper_paddq_xmm)
+                gen_helper_paddq_xmm_symbolized(cpu_env, s->ptr0, s->ptr1);
+            else
+                sse_fn_epp(cpu_env, s->ptr0, s->ptr1);
             break;
         }
         if (b == 0x2e || b == 0x2f) {
@@ -4995,8 +5015,19 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 gen_helper_idivw_AX(cpu_env, s->T0);
                 break;
             default:
-            case MO_32:
-                gen_helper_idivl_EAX(cpu_env, s->T0);
+            case MO_32:;
+                TCGv zero = tcg_const_tl(0);
+                TCGv reg_id_eax = tcg_const_tl(R_EAX);
+                TCGv reg_id_edx = tcg_const_tl(R_EDX);
+                gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EAX]), reg_id_eax);
+                gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EDX]), reg_id_edx);
+                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+                gen_helper_idivl_EAX_symbolized(cpu_env, s->T0);
+                gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EAX]), cpu_env, reg_id_eax);
+                gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EDX]), cpu_env, reg_id_edx);
+                tcg_temp_free(zero);
+                tcg_temp_free(reg_id_eax);
+                tcg_temp_free(reg_id_edx);
                 break;
 #ifdef TARGET_X86_64
             case MO_64:

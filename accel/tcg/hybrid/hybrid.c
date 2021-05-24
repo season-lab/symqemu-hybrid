@@ -108,6 +108,7 @@ uint64_t start_addr = 0;
 static GSList *plt_patches = NULL;
 static GSList *syscall_patches = NULL;
 static GSList *runtime_patches = NULL;
+static GSList *plt_aliases = NULL;
 
 typedef struct
 {
@@ -132,6 +133,15 @@ typedef struct
     char *name;
     GSList *patches;
 } runtime_patch_t;
+
+typedef struct
+{
+    char *from_obj;
+    char *to_obj;
+    uint64_t from_got_entry;
+    uint64_t to_got_entry;
+    uint64_t to_plt_entry;
+} plt_alias_t;
 
 typedef enum
 {
@@ -251,6 +261,36 @@ static int parse_config_file(char *file)
                         runtime_patch->patches = g_slist_append(runtime_patch->patches, (gpointer)patch);
                     }
                 }
+                else if (strncmp(*keys, "0x_", 2) == 0)
+                {
+                    printf("V=%s\n", *keys);
+                    char **addrs = g_key_file_get_string_list(gkf, *groups, *keys, NULL, NULL);
+                    if (addrs)
+                    {
+                        plt_alias_t *plt_alias = g_malloc0(sizeof(plt_alias_t));
+                        plt_alias->from_obj = strdup(*groups);
+                        plt_alias->from_got_entry = (target_ulong)strtoull(*keys, NULL, 16);
+                        char **addrs_original = addrs;
+                        int index = 0;
+                        while (*addrs != NULL)
+                        {
+                            printf("VV=%s\n", *addrs);
+                            if (index == 0)
+                                plt_alias->to_obj = strdup(*addrs);
+                            else if (index == 1)
+                                plt_alias->to_got_entry = (target_ulong)strtoull(*addrs, NULL, 16);
+                            else if (index == 2)
+                                plt_alias->to_plt_entry = (target_ulong)strtoull(*addrs, NULL, 16);
+                            else
+                                tcg_abort();
+                            addrs++;
+                            index += 1;
+                        }
+                        plt_aliases = g_slist_append(plt_aliases, (gpointer)plt_alias);
+                        g_strfreev(addrs_original);
+                    }
+                }
+
                 keys++;
             }
             g_strfreev(keys_original);
@@ -767,8 +807,8 @@ void save_native_context_clobber(uint64_t rsp, uint64_t *save_area)
     // arch_prctl(ARCH_SET_FS, (uint64_t) task->qemu_context->fs_base);
     for (int i = 0; i < 8; i++)
     {
-        task->emulated_state->xmm_regs[i]._q_ZMMReg[0] = save_area[-17 - (2*i)];
-        task->emulated_state->xmm_regs[i]._q_ZMMReg[1] = save_area[-18 - (2*i)];
+        task->emulated_state->xmm_regs[i]._q_ZMMReg[0] = save_area[-17 - (2 * i)];
+        task->emulated_state->xmm_regs[i]._q_ZMMReg[1] = save_area[-18 - (2 * i)];
     }
     // arch_prctl(ARCH_SET_FS, (uint64_t) context->fs_base);
 }
@@ -1025,6 +1065,10 @@ void hybrid_init(void)
         return (uint64_t)&f;                          \
     }
 
+int memcmp_symbolized(const void *a, const void *b, size_t n);
+char *strncpy_symbolized(char *dest, const char *src, size_t n);
+const char *strchr_symbolized(const char *s, int c);
+
 static uint64_t get_runtime_function_addr(char *name)
 {
     if (strcmp(name, "fread_symbolized") == 0)
@@ -1064,6 +1108,47 @@ static uint64_t get_runtime_function_addr(char *name)
     RUNTIME_FN_PTR(name, _sym_build_arithmetic_shift_right);
     RUNTIME_FN_PTR(name, _sym_build_shift_left);
     RUNTIME_FN_PTR(name, _sym_build_float_to_float);
+    RUNTIME_FN_PTR(name, _sym_build_unsigned_rem);
+    RUNTIME_FN_PTR(name, _sym_build_signed_less_equal);
+    RUNTIME_FN_PTR(name, _sym_build_signed_greater_equal);
+    RUNTIME_FN_PTR(name, _sym_build_unsigned_greater_equal);
+    RUNTIME_FN_PTR(name, _sym_build_bool_xor);
+    RUNTIME_FN_PTR(name, _sym_build_xor);
+    RUNTIME_FN_PTR(name, _sym_build_unsigned_less_than);
+    RUNTIME_FN_PTR(name, _sym_build_bool);
+    RUNTIME_FN_PTR(name, _sym_build_unsigned_greater_than);
+    RUNTIME_FN_PTR(name, _sym_build_bool_to_bits);
+    RUNTIME_FN_PTR(name, _sym_build_sub);
+    RUNTIME_FN_PTR(name, _sym_build_zext);
+    RUNTIME_FN_PTR(name, _sym_build_or);
+    RUNTIME_FN_PTR(name, _sym_build_unsigned_div);
+    RUNTIME_FN_PTR(name, _sym_build_logical_shift_right);
+    RUNTIME_FN_PTR(name, _sym_memcpy);
+    RUNTIME_FN_PTR(name, _sym_build_unsigned_less_equal);
+    RUNTIME_FN_PTR(name, _sym_build_signed_rem);
+    RUNTIME_FN_PTR(name, _sym_print_path_constraints);
+    RUNTIME_FN_PTR(name, _sym_debug_function_after_return);
+    RUNTIME_FN_PTR(name, _sym_build_equal);
+    RUNTIME_FN_PTR(name, _sym_memmove);
+    RUNTIME_FN_PTR(name, memcmp_symbolized);
+    RUNTIME_FN_PTR(name, _sym_build_fp_div);
+    RUNTIME_FN_PTR(name, _sym_memset);
+    RUNTIME_FN_PTR(name, _sym_build_signed_div);
+    RUNTIME_FN_PTR(name, _sym_build_int_to_float);
+    RUNTIME_FN_PTR(name, _sym_build_float_to_bits);
+    RUNTIME_FN_PTR(name, _sym_build_float_to_unsigned_integer);
+    RUNTIME_FN_PTR(name, _sym_build_bool_or);
+    RUNTIME_FN_PTR(name, _sym_build_extract);
+    RUNTIME_FN_PTR(name, strncpy_symbolized);
+    RUNTIME_FN_PTR(name, _sym_build_bswap);
+    RUNTIME_FN_PTR(name, strchr_symbolized);
+    RUNTIME_FN_PTR(name, _sym_build_bits_to_float);
+    RUNTIME_FN_PTR(name, _sym_build_fp_mul);
+    RUNTIME_FN_PTR(name, _sym_build_float);
+    RUNTIME_FN_PTR(name, _sym_build_bool_and);
+    RUNTIME_FN_PTR(name, _sym_libc_memmove);
+    RUNTIME_FN_PTR(name, _sym_libc_memset);
+    RUNTIME_FN_PTR(name, _sym_libc_memcpy);
 
     printf("%s\n", name);
     tcg_abort();
@@ -1101,9 +1186,40 @@ static inline TCGTemp *tcg_find_temp_arch_reg(const char *reg_name)
     return NULL;
 }
 
+static int reached_start = 0;
+
+void *get_temp_expr(const char* temp_name);
+void *get_temp_expr(const char* temp_name)
+{
+    if (!reached_start)
+        return NULL;
+
+    task_t *task = get_task();
+    TCGTemp *ret_val_ts = tcg_find_temp_arch_reg(temp_name);
+    if (ret_val_ts == NULL)
+        return NULL;
+
+    assert(ret_val_ts->symbolic_expression == 1);
+    assert(ret_val_ts->mem_coherent == 1);
+    assert(ret_val_ts->val_type == TEMP_VAL_MEM);
+    uint64_t **ret_val_expr = (uint64_t **)((uint64_t)ret_val_ts->mem_offset + (uint64_t)task->emulated_state);
+    if (*ret_val_expr)
+    {
+        size_t current_bits = _sym_bits_helper(*ret_val_expr);
+        if (current_bits < 64)
+        {
+            *ret_val_expr = _sym_build_zext(*ret_val_expr, 64 - current_bits);
+        }
+        const char *s_expr = _sym_expr_to_string(*ret_val_expr);
+        printf("%s: len=%ld %s\n", temp_name, current_bits, s_expr);
+    }
+    return *ret_val_expr;
+}
+
 void switch_to_native(uint64_t target, CPUX86State *state)
 {
     assert(hybrid_init_done);
+    reached_start = 1;
 
     task_t *task = get_task();
     CpuContext *native_cpu_context = task->native_context;
@@ -1129,9 +1245,46 @@ void switch_to_native(uint64_t target, CPUX86State *state)
         mprotect(PAGE_ALIGNED(runtime_plt_stubs), PAGE_ALIGNED_SIZE(runtime_plt_stubs, sizeof(runtime_plt_stubs)),
                  PROT_EXEC | PROT_READ | PROT_WRITE);
 
+        GSList *next = plt_aliases;
+        while (next != NULL)
+        {
+            plt_alias_t *plt_alias = next->data;
+            next = g_slist_next(next);
+
+            uint64_t base_address = 0x0;
+            GSList *next_mmaped_file = mmaped_files;
+            int mmaped_file_found = 0;
+            while (next_mmaped_file != NULL)
+            {
+                mmap_file_t *mmaped_file = (mmap_file_t *)next_mmaped_file->data;
+                next_mmaped_file = g_slist_next(next_mmaped_file);
+
+                if (strcmp(mmaped_file->name, plt_alias->from_obj) == 0)
+                {
+                    mmaped_file_found = 1;
+                    base_address = mmaped_file->addr;
+                    break;
+                }
+            }
+
+            uint64_t addr = base_address + plt_alias->from_got_entry;
+            printf("base address: %lx\n", base_address);
+            printf("GOT entry %lx: %lx %lx %lx\n", base_address + plt_alias->from_got_entry,
+                   *((uint64_t *)addr),
+                   plt_alias->to_plt_entry,
+                   *((uint64_t *)plt_alias->to_got_entry));
+
+            if (*((uint64_t *)addr) == plt_alias->to_plt_entry)
+            {
+                uint8_t *a = PAGE_ALIGNED(addr);
+                mprotect(a, getpagesize(), PROT_EXEC | PROT_READ | PROT_WRITE);
+                *((uint64_t *)addr) = *((uint64_t *)plt_alias->to_got_entry);
+            }
+        }
+
         int plt_stubs_count = 0;
         uint8_t *plt_stub = (uint8_t *)&plt_stubs;
-        GSList *next = plt_patches;
+        next = plt_patches;
         while (next != NULL)
         {
             plt_patch_t *patch = next->data;
@@ -1431,13 +1584,13 @@ void switch_to_native(uint64_t target, CPUX86State *state)
         }
 #endif
 
-        __m128i xmm0 = _mm_loadu_si128((__m128i_u const *) &task->emulated_state->xmm_regs[0]);
-        __m128i xmm1 = _mm_loadu_si128((__m128i_u const *) &task->emulated_state->xmm_regs[1]);
+        __m128i xmm0 = _mm_loadu_si128((__m128i_u const *)&task->emulated_state->xmm_regs[0]);
+        __m128i xmm1 = _mm_loadu_si128((__m128i_u const *)&task->emulated_state->xmm_regs[1]);
         __asm__("movups %0, %%xmm0\n"
                 "movups %0, %%xmm1\n"
-            :
-            : "m"(xmm0), "m"(xmm1)
-            : "xmm0", "xmm1");
+                :
+                : "m"(xmm0), "m"(xmm1)
+                : "xmm0", "xmm1");
 
         restore_native_context(task->emulated_context, target);
     }
@@ -1478,7 +1631,10 @@ void switch_to_native(uint64_t target, CPUX86State *state)
         };
 
         uint8_t args_count = _sym_get_args_count();
-        // printf("Argument count: %d\n", args_count);
+        printf("\nArgument count: %d\n", args_count);
+        printf("RDI: %lx\n", task->emulated_state->regs[SLOT_RDI]);
+        printf("RSI: %lx\n", task->emulated_state->regs[SLOT_RSI]);
+        printf("RDX: %lx\n", task->emulated_state->regs[SLOT_RDX]);
         int int_arg_count = 0;
         for (int i = 0; i < args_count; i++)
         {
@@ -1505,8 +1661,8 @@ void switch_to_native(uint64_t target, CPUX86State *state)
                             {
                                 expr = _sym_build_zext(expr, 64 - current_bits);
                             }
-                            // const char *s_expr = _sym_expr_to_string(expr);
-                            // printf("%s: %s\n", arg_regs[int_arg_count], s_expr);
+                            const char *s_expr = _sym_expr_to_string(expr);
+                            printf("%s: %s\n", arg_regs[int_arg_count], s_expr);
                         }
                         *arg_expr = expr;
                     }
@@ -1528,7 +1684,7 @@ void switch_to_native(uint64_t target, CPUX86State *state)
                         // const char *s_expr = _sym_expr_to_string(expr);
                         // printf("stack_arg[%d]: %s\n", arg_stack_index, s_expr);
                     }
-                    _sym_write_memory((uint8_t*)arg_stack_addr, 8, expr, 1);
+                    _sym_write_memory((uint8_t *)arg_stack_addr, 8, expr, 1);
                 }
                 int_arg_count++;
             }
@@ -1561,9 +1717,9 @@ int is_hooked_plt_entry(uint64_t target)
     return 0;
 }
 
-void hybrid_stub(void)
+void hybrid_stub(task_t *task)
 {
-    // printf("HERE\n");
+    printf("Native return address: %lx\n", task->native_context->pc);
     return;
 }
 

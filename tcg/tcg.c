@@ -66,6 +66,9 @@
 #include "exec/log.h"
 #include "sysemu/sysemu.h"
 
+#include "../../sym_helpers/sym_helpers.h"
+#include "../../sym_helpers/sym_check_helpers.h"
+
 /* Forward declarations for functions declared in tcg-target.inc.c and
    used here. */
 static void tcg_target_init(TCGContext *s);
@@ -1943,7 +1946,10 @@ static char *tcg_get_arg_str(TCGContext *s, char *buf,
 }
 
 /* Find helper name.  */
-static inline const char *tcg_find_helper(TCGContext *s, uintptr_t val)
+#ifndef SYM_HELPERS
+static inline 
+#endif
+const char *tcg_find_helper(TCGContext *s, uintptr_t val)
 {
     const char *ret = NULL;
     if (helper_table) {
@@ -4154,6 +4160,10 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
         qemu_log("\n");
         qemu_log_unlock();
     }
+#endif
+
+#ifdef SYM_HELPERS   
+    sym_check_helpers(tb, tcg_ctx);
 #endif
 
     tcg_reg_alloc_start(s);
