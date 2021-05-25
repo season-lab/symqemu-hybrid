@@ -2736,6 +2736,7 @@ typedef void (*SSEFunc_0_eppt)(TCGv_ptr env, TCGv_ptr reg_a, TCGv_ptr reg_b,
 #define SSE_SPECIAL ((void *)1)
 #define SSE_DUMMY ((void *)2)
 
+#define MMX_OP2_S(x) { gen_helper_ ## x ## _mmx, gen_helper_ ## x ## _xmm_symbolized }
 #define MMX_OP2(x) { gen_helper_ ## x ## _mmx, gen_helper_ ## x ## _xmm }
 #define SSE_FOP(x) { gen_helper_ ## x ## ps, gen_helper_ ## x ## pd, \
                      gen_helper_ ## x ## ss, gen_helper_ ## x ## sd, }
@@ -2749,8 +2750,8 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x11] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movups, movupd, movss, movsd */
     [0x12] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movlps, movlpd, movsldup, movddup */
     [0x13] = { SSE_SPECIAL, SSE_SPECIAL },  /* movlps, movlpd */
-    [0x14] = { gen_helper_punpckldq_xmm, gen_helper_punpcklqdq_xmm },
-    [0x15] = { gen_helper_punpckhdq_xmm, gen_helper_punpckhqdq_xmm },
+    [0x14] = { gen_helper_punpckldq_xmm_symbolized, gen_helper_punpcklqdq_xmm_symbolized },
+    [0x15] = { gen_helper_punpckhdq_xmm_symbolized, gen_helper_punpckhqdq_xmm_symbolized },
     [0x16] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },  /* movhps, movhpd, movshdup */
     [0x17] = { SSE_SPECIAL, SSE_SPECIAL },  /* movhps, movhpd */
 
@@ -2766,10 +2767,10 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x51] = SSE_FOP(sqrt),
     [0x52] = { gen_helper_rsqrtps, NULL, gen_helper_rsqrtss, NULL },
     [0x53] = { gen_helper_rcpps, NULL, gen_helper_rcpss, NULL },
-    [0x54] = { gen_helper_pand_xmm, gen_helper_pand_xmm }, /* andps, andpd */
-    [0x55] = { gen_helper_pandn_xmm, gen_helper_pandn_xmm }, /* andnps, andnpd */
-    [0x56] = { gen_helper_por_xmm, gen_helper_por_xmm }, /* orps, orpd */
-    [0x57] = { gen_helper_pxor_xmm, gen_helper_pxor_xmm }, /* xorps, xorpd */
+    [0x54] = { gen_helper_pand_xmm_symbolized, gen_helper_pand_xmm_symbolized }, /* andps, andpd */
+    [0x55] = { gen_helper_pandn_xmm_symbolized, gen_helper_pandn_xmm_symbolized }, /* andnps, andnpd */
+    [0x56] = { gen_helper_por_xmm_symbolized, gen_helper_por_xmm_symbolized }, /* orps, orpd */
+    [0x57] = { gen_helper_pxor_xmm_symbolized, gen_helper_pxor_xmm_symbolized }, /* xorps, xorpd */
     [0x58] = SSE_FOP(add),
     [0x59] = SSE_FOP(mul),
     [0x5a] = { gen_helper_cvtps2pd, gen_helper_cvtpd2ps,
@@ -2789,32 +2790,32 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x3a] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },
 
     /* MMX ops and their SSE extensions */
-    [0x60] = MMX_OP2(punpcklbw),
-    [0x61] = MMX_OP2(punpcklwd),
-    [0x62] = MMX_OP2(punpckldq),
-    [0x63] = MMX_OP2(packsswb),
-    [0x64] = MMX_OP2(pcmpgtb),
-    [0x65] = MMX_OP2(pcmpgtw),
-    [0x66] = MMX_OP2(pcmpgtl),
-    [0x67] = MMX_OP2(packuswb),
-    [0x68] = MMX_OP2(punpckhbw),
-    [0x69] = MMX_OP2(punpckhwd),
-    [0x6a] = MMX_OP2(punpckhdq),
-    [0x6b] = MMX_OP2(packssdw),
-    [0x6c] = { NULL, gen_helper_punpcklqdq_xmm },
-    [0x6d] = { NULL, gen_helper_punpckhqdq_xmm },
+    [0x60] = MMX_OP2_S(punpcklbw),
+    [0x61] = MMX_OP2_S(punpcklwd),
+    [0x62] = MMX_OP2_S(punpckldq),
+    [0x63] = MMX_OP2_S(packsswb),
+    [0x64] = MMX_OP2_S(pcmpgtb),
+    [0x65] = MMX_OP2_S(pcmpgtw),
+    [0x66] = MMX_OP2_S(pcmpgtl),
+    [0x67] = MMX_OP2_S(packuswb),
+    [0x68] = MMX_OP2_S(punpckhbw),
+    [0x69] = MMX_OP2_S(punpckhwd),
+    [0x6a] = MMX_OP2_S(punpckhdq),
+    [0x6b] = MMX_OP2_S(packssdw),
+    [0x6c] = { NULL, gen_helper_punpcklqdq_xmm_symbolized },
+    [0x6d] = { NULL, gen_helper_punpckhqdq_xmm_symbolized },
     [0x6e] = { SSE_SPECIAL, SSE_SPECIAL }, /* movd mm, ea */
     [0x6f] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movq, movdqa, , movqdu */
     [0x70] = { (SSEFunc_0_epp)gen_helper_pshufw_mmx,
-               (SSEFunc_0_epp)gen_helper_pshufd_xmm,
-               (SSEFunc_0_epp)gen_helper_pshufhw_xmm,
-               (SSEFunc_0_epp)gen_helper_pshuflw_xmm }, /* XXX: casts */
+               (SSEFunc_0_epp)gen_helper_pshufd_xmm_symbolized,
+               (SSEFunc_0_epp)gen_helper_pshufhw_xmm_symbolized,
+               (SSEFunc_0_epp)gen_helper_pshuflw_xmm_symbolized }, /* XXX: casts */
     [0x71] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftw */
     [0x72] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftd */
     [0x73] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftq */
-    [0x74] = MMX_OP2(pcmpeqb),
-    [0x75] = MMX_OP2(pcmpeqw),
-    [0x76] = MMX_OP2(pcmpeql),
+    [0x74] = MMX_OP2_S(pcmpeqb),
+    [0x75] = MMX_OP2_S(pcmpeqw),
+    [0x76] = MMX_OP2_S(pcmpeql),
     [0x77] = { SSE_DUMMY }, /* emms */
     [0x78] = { NULL, SSE_SPECIAL, NULL, SSE_SPECIAL }, /* extrq_i, insertq_i */
     [0x79] = { NULL, gen_helper_extrq_r, NULL, gen_helper_insertq_r },
@@ -2825,66 +2826,66 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0xc4] = { SSE_SPECIAL, SSE_SPECIAL }, /* pinsrw */
     [0xc5] = { SSE_SPECIAL, SSE_SPECIAL }, /* pextrw */
     [0xd0] = { NULL, gen_helper_addsubpd, NULL, gen_helper_addsubps },
-    [0xd1] = MMX_OP2(psrlw),
-    [0xd2] = MMX_OP2(psrld),
-    [0xd3] = MMX_OP2(psrlq),
-    [0xd4] = MMX_OP2(paddq),
-    [0xd5] = MMX_OP2(pmullw),
+    [0xd1] = MMX_OP2_S(psrlw),
+    [0xd2] = MMX_OP2_S(psrld),
+    [0xd3] = MMX_OP2_S(psrlq),
+    [0xd4] = MMX_OP2_S(paddq),
+    [0xd5] = MMX_OP2_S(pmullw),
     [0xd6] = { NULL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },
     [0xd7] = { SSE_SPECIAL, SSE_SPECIAL }, /* pmovmskb */
-    [0xd8] = MMX_OP2(psubusb),
-    [0xd9] = MMX_OP2(psubusw),
-    [0xda] = MMX_OP2(pminub),
-    [0xdb] = MMX_OP2(pand),
-    [0xdc] = MMX_OP2(paddusb),
-    [0xdd] = MMX_OP2(paddusw),
-    [0xde] = MMX_OP2(pmaxub),
-    [0xdf] = MMX_OP2(pandn),
-    [0xe0] = MMX_OP2(pavgb),
-    [0xe1] = MMX_OP2(psraw),
-    [0xe2] = MMX_OP2(psrad),
-    [0xe3] = MMX_OP2(pavgw),
-    [0xe4] = MMX_OP2(pmulhuw),
-    [0xe5] = MMX_OP2(pmulhw),
+    [0xd8] = MMX_OP2_S(psubusb),
+    [0xd9] = MMX_OP2_S(psubusw),
+    [0xda] = MMX_OP2_S(pminub),
+    [0xdb] = MMX_OP2_S(pand),
+    [0xdc] = MMX_OP2_S(paddusb),
+    [0xdd] = MMX_OP2_S(paddusw),
+    [0xde] = MMX_OP2_S(pmaxub),
+    [0xdf] = MMX_OP2_S(pandn),
+    [0xe0] = MMX_OP2_S(pavgb),
+    [0xe1] = MMX_OP2_S(psraw),
+    [0xe2] = MMX_OP2_S(psrad),
+    [0xe3] = MMX_OP2_S(pavgw),
+    [0xe4] = MMX_OP2_S(pmulhuw),
+    [0xe5] = MMX_OP2_S(pmulhw),
     [0xe6] = { NULL, gen_helper_cvttpd2dq, gen_helper_cvtdq2pd, gen_helper_cvtpd2dq },
     [0xe7] = { SSE_SPECIAL , SSE_SPECIAL },  /* movntq, movntq */
-    [0xe8] = MMX_OP2(psubsb),
-    [0xe9] = MMX_OP2(psubsw),
-    [0xea] = MMX_OP2(pminsw),
-    [0xeb] = MMX_OP2(por),
-    [0xec] = MMX_OP2(paddsb),
-    [0xed] = MMX_OP2(paddsw),
-    [0xee] = MMX_OP2(pmaxsw),
-    [0xef] = MMX_OP2(pxor),
+    [0xe8] = MMX_OP2_S(psubsb),
+    [0xe9] = MMX_OP2_S(psubsw),
+    [0xea] = MMX_OP2_S(pminsw),
+    [0xeb] = MMX_OP2_S(por),
+    [0xec] = MMX_OP2_S(paddsb),
+    [0xed] = MMX_OP2_S(paddsw),
+    [0xee] = MMX_OP2_S(pmaxsw),
+    [0xef] = MMX_OP2_S(pxor),
     [0xf0] = { NULL, NULL, NULL, SSE_SPECIAL }, /* lddqu */
-    [0xf1] = MMX_OP2(psllw),
-    [0xf2] = MMX_OP2(pslld),
-    [0xf3] = MMX_OP2(psllq),
-    [0xf4] = MMX_OP2(pmuludq),
-    [0xf5] = MMX_OP2(pmaddwd),
-    [0xf6] = MMX_OP2(psadbw),
+    [0xf1] = MMX_OP2_S(psllw),
+    [0xf2] = MMX_OP2_S(pslld),
+    [0xf3] = MMX_OP2_S(psllq),
+    [0xf4] = MMX_OP2_S(pmuludq),
+    [0xf5] = MMX_OP2_S(pmaddwd),
+    [0xf6] = MMX_OP2_S(psadbw),
     [0xf7] = { (SSEFunc_0_epp)gen_helper_maskmov_mmx,
                (SSEFunc_0_epp)gen_helper_maskmov_xmm }, /* XXX: casts */
-    [0xf8] = MMX_OP2(psubb),
-    [0xf9] = MMX_OP2(psubw),
-    [0xfa] = MMX_OP2(psubl),
-    [0xfb] = MMX_OP2(psubq),
-    [0xfc] = MMX_OP2(paddb),
-    [0xfd] = MMX_OP2(paddw),
-    [0xfe] = MMX_OP2(paddl),
+    [0xf8] = MMX_OP2_S(psubb),
+    [0xf9] = MMX_OP2_S(psubw),
+    [0xfa] = MMX_OP2_S(psubl),
+    [0xfb] = MMX_OP2_S(psubq),
+    [0xfc] = MMX_OP2_S(paddb),
+    [0xfd] = MMX_OP2_S(paddw),
+    [0xfe] = MMX_OP2_S(paddl),
 };
 
 static const SSEFunc_0_epp sse_op_table2[3 * 8][2] = {
-    [0 + 2] = MMX_OP2(psrlw),
-    [0 + 4] = MMX_OP2(psraw),
-    [0 + 6] = MMX_OP2(psllw),
-    [8 + 2] = MMX_OP2(psrld),
-    [8 + 4] = MMX_OP2(psrad),
-    [8 + 6] = MMX_OP2(pslld),
-    [16 + 2] = MMX_OP2(psrlq),
-    [16 + 3] = { NULL, gen_helper_psrldq_xmm },
-    [16 + 6] = MMX_OP2(psllq),
-    [16 + 7] = { NULL, gen_helper_pslldq_xmm },
+    [0 + 2] = MMX_OP2_S(psrlw),
+    [0 + 4] = MMX_OP2_S(psraw),
+    [0 + 6] = MMX_OP2_S(psllw),
+    [8 + 2] = MMX_OP2_S(psrld),
+    [8 + 4] = MMX_OP2_S(psrad),
+    [8 + 6] = MMX_OP2_S(pslld),
+    [16 + 2] = MMX_OP2_S(psrlq),
+    [16 + 3] = { NULL, gen_helper_psrldq_xmm_symbolized },
+    [16 + 6] = MMX_OP2_S(psllq),
+    [16 + 7] = { NULL, gen_helper_pslldq_xmm_symbolized },
 };
 
 static const SSEFunc_0_epi sse_op_table3ai[] = {
@@ -2963,7 +2964,9 @@ struct SSEOpHelper_eppi {
     uint32_t ext_mask;
 };
 
+#define SSSE3_OP_S(x) { MMX_OP2_S(x), CPUID_EXT_SSSE3 }
 #define SSSE3_OP(x) { MMX_OP2(x), CPUID_EXT_SSSE3 }
+#define SSE41_OP_S(x) { { NULL, gen_helper_ ## x ## _xmm_symbolized }, CPUID_EXT_SSE41 }
 #define SSE41_OP(x) { { NULL, gen_helper_ ## x ## _xmm }, CPUID_EXT_SSE41 }
 #define SSE42_OP(x) { { NULL, gen_helper_ ## x ## _xmm }, CPUID_EXT_SSE42 }
 #define SSE41_SPECIAL { { NULL, SSE_SPECIAL }, CPUID_EXT_SSE41 }
@@ -2972,52 +2975,52 @@ struct SSEOpHelper_eppi {
 #define AESNI_OP(x) { { NULL, gen_helper_ ## x ## _xmm }, CPUID_EXT_AES }
 
 static const struct SSEOpHelper_epp sse_op_table6[256] = {
-    [0x00] = SSSE3_OP(pshufb),
-    [0x01] = SSSE3_OP(phaddw),
-    [0x02] = SSSE3_OP(phaddd),
-    [0x03] = SSSE3_OP(phaddsw),
-    [0x04] = SSSE3_OP(pmaddubsw),
-    [0x05] = SSSE3_OP(phsubw),
-    [0x06] = SSSE3_OP(phsubd),
-    [0x07] = SSSE3_OP(phsubsw),
-    [0x08] = SSSE3_OP(psignb),
-    [0x09] = SSSE3_OP(psignw),
-    [0x0a] = SSSE3_OP(psignd),
-    [0x0b] = SSSE3_OP(pmulhrsw),
+    [0x00] = SSSE3_OP_S(pshufb),
+    [0x01] = SSSE3_OP_S(phaddw),
+    [0x02] = SSSE3_OP_S(phaddd),
+    [0x03] = SSSE3_OP_S(phaddsw),
+    [0x04] = SSSE3_OP_S(pmaddubsw),
+    [0x05] = SSSE3_OP_S(phsubw),
+    [0x06] = SSSE3_OP_S(phsubd),
+    [0x07] = SSSE3_OP_S(phsubsw),
+    [0x08] = SSSE3_OP_S(psignb),
+    [0x09] = SSSE3_OP_S(psignw),
+    [0x0a] = SSSE3_OP_S(psignd),
+    [0x0b] = SSSE3_OP_S(pmulhrsw),
     [0x10] = SSE41_OP(pblendvb),
     [0x14] = SSE41_OP(blendvps),
     [0x15] = SSE41_OP(blendvpd),
-    [0x17] = SSE41_OP(ptest),
-    [0x1c] = SSSE3_OP(pabsb),
-    [0x1d] = SSSE3_OP(pabsw),
-    [0x1e] = SSSE3_OP(pabsd),
-    [0x20] = SSE41_OP(pmovsxbw),
-    [0x21] = SSE41_OP(pmovsxbd),
-    [0x22] = SSE41_OP(pmovsxbq),
-    [0x23] = SSE41_OP(pmovsxwd),
-    [0x24] = SSE41_OP(pmovsxwq),
-    [0x25] = SSE41_OP(pmovsxdq),
-    [0x28] = SSE41_OP(pmuldq),
-    [0x29] = SSE41_OP(pcmpeqq),
+    [0x17] = SSE41_OP_S(ptest),
+    [0x1c] = SSSE3_OP_S(pabsb),
+    [0x1d] = SSSE3_OP_S(pabsw),
+    [0x1e] = SSSE3_OP_S(pabsd),
+    [0x20] = SSE41_OP_S(pmovsxbw),
+    [0x21] = SSE41_OP_S(pmovsxbd),
+    [0x22] = SSE41_OP_S(pmovsxbq),
+    [0x23] = SSE41_OP_S(pmovsxwd),
+    [0x24] = SSE41_OP_S(pmovsxwq),
+    [0x25] = SSE41_OP_S(pmovsxdq),
+    [0x28] = SSE41_OP_S(pmuldq),
+    [0x29] = SSE41_OP_S(pcmpeqq),
     [0x2a] = SSE41_SPECIAL, /* movntqda */
     [0x2b] = SSE41_OP(packusdw),
-    [0x30] = SSE41_OP(pmovzxbw),
-    [0x31] = SSE41_OP(pmovzxbd),
-    [0x32] = SSE41_OP(pmovzxbq),
-    [0x33] = SSE41_OP(pmovzxwd),
-    [0x34] = SSE41_OP(pmovzxwq),
-    [0x35] = SSE41_OP(pmovzxdq),
+    [0x30] = SSE41_OP_S(pmovzxbw),
+    [0x31] = SSE41_OP_S(pmovzxbd),
+    [0x32] = SSE41_OP_S(pmovzxbq),
+    [0x33] = SSE41_OP_S(pmovzxwd),
+    [0x34] = SSE41_OP_S(pmovzxwq),
+    [0x35] = SSE41_OP_S(pmovzxdq),
     [0x37] = SSE42_OP(pcmpgtq),
     [0x38] = SSE41_OP(pminsb),
-    [0x39] = SSE41_OP(pminsd),
-    [0x3a] = SSE41_OP(pminuw),
-    [0x3b] = SSE41_OP(pminud),
-    [0x3c] = SSE41_OP(pmaxsb),
-    [0x3d] = SSE41_OP(pmaxsd),
-    [0x3e] = SSE41_OP(pmaxuw),
-    [0x3f] = SSE41_OP(pmaxud),
-    [0x40] = SSE41_OP(pmulld),
-    [0x41] = SSE41_OP(phminposuw),
+    [0x39] = SSE41_OP_S(pminsd),
+    [0x3a] = SSE41_OP_S(pminuw),
+    [0x3b] = SSE41_OP_S(pminud),
+    [0x3c] = SSE41_OP_S(pmaxsb),
+    [0x3d] = SSE41_OP_S(pmaxsd),
+    [0x3e] = SSE41_OP_S(pmaxuw),
+    [0x3f] = SSE41_OP_S(pmaxud),
+    [0x40] = SSE41_OP_S(pmulld),
+    [0x41] = SSE41_OP_S(phminposuw),
     [0xdb] = AESNI_OP(aesimc),
     [0xdc] = AESNI_OP(aesenc),
     [0xdd] = AESNI_OP(aesenclast),
@@ -3186,7 +3189,14 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                 gen_ldst_modrm(env, s, modrm, MO_64, OR_TMP0, 0);
                 tcg_gen_addi_ptr(s->ptr0, cpu_env,
                                  offsetof(CPUX86State,xmm_regs[reg]));
+#ifdef SYM_HELPERS
+                TCGv zero = tcg_const_tl(0);
+                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+                gen_helper_movq_mm_T0_xmm_symbolized(s->ptr0, s->T0);
+                tcg_temp_free(zero);
+#else
                 gen_helper_movq_mm_T0_xmm(s->ptr0, s->T0);
+#endif
             } else
 #endif
             {
@@ -3194,7 +3204,14 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                 tcg_gen_addi_ptr(s->ptr0, cpu_env,
                                  offsetof(CPUX86State,xmm_regs[reg]));
                 tcg_gen_trunc_tl_i32(s->tmp2_i32, s->T0);
+#ifdef SYM_HELPERS
+                TCGv zero = tcg_const_tl(0);
+                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i32_expr(s->tmp2_i32));
+                gen_helper_movl_mm_T0_xmm_symbolized(s->ptr0, s->tmp2_i32);
+                tcg_temp_free(zero);
+#else
                 gen_helper_movl_mm_T0_xmm(s->ptr0, s->tmp2_i32);
+#endif
             }
             break;
         case 0x6f: /* movq mm, ea */
@@ -3695,7 +3712,15 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                 rm = (modrm & 7) | REX_B(s);
                 tcg_gen_addi_ptr(s->ptr0, cpu_env,
                                  offsetof(CPUX86State, xmm_regs[rm]));
+#ifdef SYM_HELPERS
+                TCGv zero = tcg_const_tl(0);
+                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, (TCGv_ptr) zero);
+                gen_helper_pmovmskb_xmm_symbolized(s->tmp2_i32, cpu_env, s->ptr0);
+                gen_helper_sym_set_return_value(tcgv_i32_expr(s->tmp2_i32), tcgv_i64_expr(zero));
+                tcg_temp_free(zero);
+#else
                 gen_helper_pmovmskb_xmm(s->tmp2_i32, cpu_env, s->ptr0);
+#endif
             } else {
                 rm = (modrm & 7);
                 tcg_gen_addi_ptr(s->ptr0, cpu_env,
@@ -4458,6 +4483,22 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
             tcg_gen_addi_ptr(s->ptr1, cpu_env, op2_offset);
             /* XXX: introduce a new table? */
             sse_fn_ppi = (SSEFunc_0_ppi)sse_fn_epp;
+#ifdef SYM_HELPERS
+            int symbolic = 0;
+            if (
+                sse_fn_ppi == gen_helper_pshufd_xmm_symbolized
+                    || sse_fn_ppi == gen_helper_pshuflw_xmm_symbolized
+                    || sse_fn_ppi == gen_helper_pshufhw_xmm_symbolized
+                ) {
+                    symbolic = 1;
+                    break;
+            }
+            if (symbolic) {
+                TCGv zero = tcg_const_tl(0);
+                gen_helper_sym_init_args_3_void((TCGv_ptr) zero, (TCGv_ptr) zero, (TCGv_ptr) zero);
+                tcg_temp_free(zero);
+            }
+#endif
             sse_fn_ppi(s->ptr0, s->ptr1, tcg_const_i32(val));
             break;
         case 0xc2:
@@ -4488,11 +4529,14 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
         default:
             tcg_gen_addi_ptr(s->ptr0, cpu_env, op1_offset);
             tcg_gen_addi_ptr(s->ptr1, cpu_env, op2_offset);
-
-            if (sse_fn_epp == gen_helper_paddq_xmm)
-                gen_helper_paddq_xmm_symbolized(cpu_env, s->ptr0, s->ptr1);
-            else
-                sse_fn_epp(cpu_env, s->ptr0, s->ptr1);
+#ifdef SYM_HELPERS
+            TCGv zero = tcg_const_tl(0);
+            gen_helper_sym_init_args_2_void((TCGv_ptr) zero, (TCGv_ptr) zero);
+#endif
+            sse_fn_epp(cpu_env, s->ptr0, s->ptr1);
+#ifdef SYM_HELPERS
+            tcg_temp_free(zero);
+#endif
             break;
         }
         if (b == 0x2e || b == 0x2f) {
