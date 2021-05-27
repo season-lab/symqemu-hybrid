@@ -303,12 +303,17 @@ static void *sym_load_guest_internal(CPUArchState *env,
                                      target_ulong mmu_idx)
 {
     /* Try an alternative address */
-    if (addr_expr != NULL)
+    if (addr_expr != NULL) {
+        void* condition = _sym_build_equal(
+                addr_expr, _sym_build_integer(addr, sizeof(addr) * 8));
+#if 0
+        const char *s_expr = _sym_expr_to_string(condition);
+        printf("QUERY ADDR AT %lx: %s\n", get_pc(env), s_expr);
+#endif
         _sym_push_path_constraint(
-            _sym_build_equal(
-                addr_expr, _sym_build_integer(addr, sizeof(addr) * 8)),
+            condition,
             true, get_pc(env));
-
+    }
     void *host_addr = tlb_vaddr_to_host(env, addr, MMU_DATA_LOAD, mmu_idx);
     void *memory_expr = _sym_read_memory((uint8_t*)host_addr, load_length, true);
 
@@ -338,12 +343,17 @@ static void sym_store_guest_internal(CPUArchState *env,
                                      uint64_t length, target_ulong mmu_idx)
 {
     /* Try an alternative address */
-    if (addr_expr != NULL)
+    if (addr_expr != NULL) {
+        void* condition = _sym_build_equal(
+                addr_expr, _sym_build_integer(addr, sizeof(addr) * 8));
+#if 0
+        const char *s_expr = _sym_expr_to_string(condition);
+        printf("QUERY ADDR AT %lx: %s\n", get_pc(env), s_expr);
+#endif
         _sym_push_path_constraint(
-            _sym_build_equal(
-                addr_expr, _sym_build_integer(addr, sizeof(addr) * 8)),
+            condition,
             true, get_pc(env));
-
+    }
     void *host_addr = tlb_vaddr_to_host(env, addr, MMU_DATA_STORE, mmu_idx);
     _sym_write_memory((uint8_t*)host_addr, length, value_expr, true);
 }
@@ -613,7 +623,7 @@ static void *sym_setcond_internal(CPUArchState *env,
     }
 
     void *condition = handler(arg1_expr, arg2_expr);
-#if 1
+#if 0
     const char *s_expr = _sym_expr_to_string(condition);
     printf("QUERY AT %lx: %s\n", get_pc(env), s_expr);
 #endif

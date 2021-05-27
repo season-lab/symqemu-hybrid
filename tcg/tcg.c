@@ -1734,7 +1734,7 @@ void tcg_gen_callN(void *func, TCGTemp *ret, int nargs, TCGTemp **args)
     unsigned sizemask, flags;
     TCGHelperInfo *info;
     TCGOp *op;
-    
+
     if (ret != NULL && ret->symbolic_expression == 0
         // helper_sym_muluh_i64 will take care of the return
         // symbolic value of helper_muluh_i64

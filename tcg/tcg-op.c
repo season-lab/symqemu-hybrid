@@ -562,6 +562,7 @@ void tcg_gen_orc_i32(TCGv_i32 ret, TCGv_i32 arg1, TCGv_i32 arg2)
 void tcg_gen_clz_i32(TCGv_i32 ret, TCGv_i32 arg1, TCGv_i32 arg2)
 {
     if (TCG_TARGET_HAS_clz_i32) {
+        tcg_gen_op2i_i64(INDEX_op_movi_i64, tcgv_i32_expr_num(ret), 0);
         tcg_gen_op3_i32(INDEX_op_clz_i32, ret, arg1, arg2);
     } else if (TCG_TARGET_HAS_clz_i64) {
         TCGv_i64 t1 = tcg_temp_new_i64();
@@ -589,6 +590,7 @@ void tcg_gen_clzi_i32(TCGv_i32 ret, TCGv_i32 arg1, uint32_t arg2)
 void tcg_gen_ctz_i32(TCGv_i32 ret, TCGv_i32 arg1, TCGv_i32 arg2)
 {
     if (TCG_TARGET_HAS_ctz_i32) {
+        tcg_gen_op2i_i64(INDEX_op_movi_i64, tcgv_i32_expr_num(ret), 0);
         tcg_gen_op3_i32(INDEX_op_ctz_i32, ret, arg1, arg2);
     } else if (TCG_TARGET_HAS_ctz_i64) {
         TCGv_i64 t1 = tcg_temp_new_i64();
@@ -2160,6 +2162,7 @@ void tcg_gen_orc_i64(TCGv_i64 ret, TCGv_i64 arg1, TCGv_i64 arg2)
 void tcg_gen_clz_i64(TCGv_i64 ret, TCGv_i64 arg1, TCGv_i64 arg2)
 {
     if (TCG_TARGET_HAS_clz_i64) {
+        tcg_gen_op2i_i64(INDEX_op_movi_i64, tcgv_i64_expr_num(ret), 0);
         tcg_gen_op3_i64(INDEX_op_clz_i64, ret, arg1, arg2);
     } else {
         gen_helper_clz_i64(ret, arg1, arg2);
@@ -2187,6 +2190,7 @@ void tcg_gen_clzi_i64(TCGv_i64 ret, TCGv_i64 arg1, uint64_t arg2)
 void tcg_gen_ctz_i64(TCGv_i64 ret, TCGv_i64 arg1, TCGv_i64 arg2)
 {
     if (TCG_TARGET_HAS_ctz_i64) {
+        tcg_gen_op2i_i64(INDEX_op_movi_i64, tcgv_i64_expr_num(ret), 0);
         tcg_gen_op3_i64(INDEX_op_ctz_i64, ret, arg1, arg2);
     } else if (TCG_TARGET_HAS_ctpop_i64 || TCG_TARGET_HAS_clz_i64) {
         TCGv_i64 z, t = tcg_temp_new_i64();
@@ -2255,6 +2259,7 @@ void tcg_gen_clrsb_i64(TCGv_i64 ret, TCGv_i64 arg)
 void tcg_gen_ctpop_i64(TCGv_i64 ret, TCGv_i64 arg1)
 {
     if (TCG_TARGET_HAS_ctpop_i64) {
+        tcg_gen_op2i_i64(INDEX_op_movi_i64, tcgv_i64_expr_num(ret), 0);
         tcg_gen_op2_i64(INDEX_op_ctpop_i64, ret, arg1);
     } else if (TCG_TARGET_REG_BITS == 32 && TCG_TARGET_HAS_ctpop_i32) {
         tcg_gen_ctpop_i32(TCGV_HIGH(ret), TCGV_HIGH(arg1));

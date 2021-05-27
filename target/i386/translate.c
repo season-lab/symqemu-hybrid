@@ -4491,7 +4491,6 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                     || sse_fn_ppi == gen_helper_pshufhw_xmm_symbolized
                 ) {
                     symbolic = 1;
-                    break;
             }
             if (symbolic) {
                 TCGv zero = tcg_const_tl(0);
@@ -4531,7 +4530,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
             tcg_gen_addi_ptr(s->ptr1, cpu_env, op2_offset);
 #ifdef SYM_HELPERS
             TCGv zero = tcg_const_tl(0);
-            gen_helper_sym_init_args_2_void((TCGv_ptr) zero, (TCGv_ptr) zero);
+            gen_helper_sym_init_args_3_void((TCGv_ptr) zero, (TCGv_ptr) zero, (TCGv_ptr) zero);
 #endif
             sse_fn_epp(cpu_env, s->ptr0, s->ptr1);
 #ifdef SYM_HELPERS
