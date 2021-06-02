@@ -102,7 +102,8 @@ typedef struct CpuContext_t
 #define MAX_TASKS 64
 static task_t tasks[MAX_TASKS] = {0};
 
-uint64_t shadow_plt[128] = {0};
+#define MAX_PLT_ENTRIES 256
+uint64_t shadow_plt[MAX_PLT_ENTRIES] = {0};
 
 uint64_t start_addr = 0;
 static GSList *plt_patches = NULL;
@@ -142,6 +143,8 @@ typedef struct
     uint64_t to_got_entry;
     uint64_t to_plt_entry;
 } plt_alias_t;
+
+static int plt_stubs_count = 0;
 
 typedef enum
 {
@@ -1000,7 +1003,7 @@ void switch_to_emulated(int plt_entry)
     uint64_t *ret_addr = (uint64_t *)task->emulated_state->regs[SLOT_RSP];
     task->native_context->pc = *(ret_addr);
     *(ret_addr) = (uint64_t)return_handler_from_emulation;
-    assert(plt_entry >= 0 && plt_entry < 128);
+    assert(plt_entry >= 0 && plt_entry < plt_stubs_count);
     task->emulated_state->eip = shadow_plt[plt_entry];
 
     uint64_t base;
@@ -1149,6 +1152,9 @@ static uint64_t get_runtime_function_addr(char *name)
     RUNTIME_FN_PTR(name, _sym_libc_memmove);
     RUNTIME_FN_PTR(name, _sym_libc_memset);
     RUNTIME_FN_PTR(name, _sym_libc_memcpy);
+    RUNTIME_FN_PTR(name, _sym_build_float_to_signed_integer);
+    RUNTIME_FN_PTR(name, _sym_build_fp_add);
+    RUNTIME_FN_PTR(name, _sym_build_float_unordered_not_equal);
 
     printf("%s\n", name);
     tcg_abort();
@@ -1282,7 +1288,6 @@ void switch_to_native(uint64_t target, CPUX86State *state)
             }
         }
 
-        int plt_stubs_count = 0;
         uint8_t *plt_stub = (uint8_t *)&plt_stubs;
         next = plt_patches;
         while (next != NULL)
@@ -1349,6 +1354,7 @@ void switch_to_native(uint64_t target, CPUX86State *state)
 
                 plt_stubs_count++;
                 plt_stub += 16;
+                assert(plt_stubs_count < MAX_PLT_ENTRIES);
                 assert(plt_stub < plt_stubs + sizeof(plt_stubs));
             }
         }
@@ -1503,9 +1509,13 @@ void switch_to_native(uint64_t target, CPUX86State *state)
     }
 
     TCGTemp *ret_val_ts = tcg_find_temp_arch_reg("rax_expr");
+
+    // these sanity checks make sense only
+    // after jitting... should we remove them?
     assert(ret_val_ts->symbolic_expression == 1);
     assert(ret_val_ts->mem_coherent == 1);
     assert(ret_val_ts->val_type == TEMP_VAL_MEM);
+    
     uint64_t **ret_val_expr = (uint64_t **)((uint64_t)ret_val_ts->mem_offset + (uint64_t)task->emulated_state);
     if (*ret_val_expr)
     {
@@ -1650,9 +1660,12 @@ void switch_to_native(uint64_t target, CPUX86State *state)
                     TCGTemp *arg = tcg_find_temp_arch_reg(arg_regs[int_arg_count]);
                     if (arg)
                     {
+                        // these sanity checks make sense only
+                        // after jitting... should we remove them?
                         assert(arg->symbolic_expression == 1);
                         assert(arg->mem_coherent == 1);
                         assert(arg->val_type == TEMP_VAL_MEM);
+                    
                         uint64_t **arg_expr = (uint64_t **)((uint64_t)arg->mem_offset + (uint64_t)task->emulated_state);
                         if (expr)
                         {

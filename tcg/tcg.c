@@ -3468,6 +3468,13 @@ static void tcg_reg_alloc_mov(TCGContext *s, const TCGOp *op)
             temp_dead(s, ts);
         }
         temp_dead(s, ots);
+
+        /* HYBRID */
+        // we use this as a sanity check...
+        // No idea why this is not done by QEMU...
+        // This is code is syncing a temp!
+        ots->mem_coherent = 1;
+        /* HYBRID */
     } else {
         if (IS_DEAD_ARG(1) && !ts->fixed_reg) {
             /* the mov can be suppressed */
