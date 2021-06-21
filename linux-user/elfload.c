@@ -10,6 +10,10 @@
 #include "qemu/path.h"
 #include "qemu/guest-random.h"
 
+/* HYBRID */
+extern abi_ulong hybrid_entry_point, hybrid_start_code, hybrid_end_code;
+/* HYBRID */
+
 #ifdef _ARCH_PPC64
 #undef ARCH_DLINFO
 #undef ELF_PLATFORM
@@ -2388,6 +2392,11 @@ static void load_elf_image(const char *image_name, int image_fd,
     info->brk = 0;
     info->elf_flags = ehdr->e_flags;
 
+    if (!hybrid_entry_point) { 
+        hybrid_entry_point = info->entry;
+        printf("ENTRY POINT: %lx\n", hybrid_entry_point);
+    }
+
     for (i = 0; i < ehdr->e_phnum; i++) {
         struct elf_phdr *eppnt = phdr + i;
         if (eppnt->p_type == PT_LOAD) {
@@ -2430,9 +2439,17 @@ static void load_elf_image(const char *image_name, int image_fd,
             if (elf_prot & PROT_EXEC) {
                 if (vaddr < info->start_code) {
                     info->start_code = vaddr;
+                    if (!hybrid_start_code) {
+                        hybrid_start_code = vaddr;
+                        printf("START CODE: %lx\n", hybrid_start_code);
+                    }
                 }
                 if (vaddr_ef > info->end_code) {
                     info->end_code = vaddr_ef;
+                    if (!hybrid_end_code) {
+                        hybrid_end_code = vaddr_ef;
+                        printf("END CODE: %lx\n", hybrid_end_code);
+                    }
                 }
             }
             if (elf_prot & PROT_WRITE) {

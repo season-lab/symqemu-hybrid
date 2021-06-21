@@ -2243,8 +2243,9 @@ static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
 
     if (use_goto_tb(s, pc))  {
         /* jump to same page: we can use a direct jump */
+        gen_jmp_im(s, eip); // FIX suggested by Heng Yin
         tcg_gen_goto_tb(tb_num);
-        gen_jmp_im(s, eip);
+        // gen_jmp_im(s, eip); // FIX suggested by Heng Yin
         tcg_gen_exit_tb(s->base.tb, tb_num);
         s->base.is_jmp = DISAS_NORETURN;
     } else {
@@ -3191,8 +3192,10 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                                  offsetof(CPUX86State,xmm_regs[reg]));
 #ifdef SYM_HELPERS
                 TCGv zero = tcg_const_tl(0);
-                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+                // gen_helper_sym_dbg(cpu_env);
+                gen_helper_sym_init_args_2_void((TCGv_ptr) zero, tcgv_i64_expr(s->T0));
                 gen_helper_movq_mm_T0_xmm_symbolized(s->ptr0, s->T0);
+                // gen_helper_sym_dbg(cpu_env);
                 tcg_temp_free(zero);
 #else
                 gen_helper_movq_mm_T0_xmm(s->ptr0, s->T0);
@@ -4530,10 +4533,12 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
             tcg_gen_addi_ptr(s->ptr1, cpu_env, op2_offset);
 #ifdef SYM_HELPERS
             TCGv zero = tcg_const_tl(0);
+            // gen_helper_sym_dbg(cpu_env);
             gen_helper_sym_init_args_3_void((TCGv_ptr) zero, (TCGv_ptr) zero, (TCGv_ptr) zero);
 #endif
             sse_fn_epp(cpu_env, s->ptr0, s->ptr1);
 #ifdef SYM_HELPERS
+            // gen_helper_sym_dbg(cpu_env);
             tcg_temp_free(zero);
 #endif
             break;

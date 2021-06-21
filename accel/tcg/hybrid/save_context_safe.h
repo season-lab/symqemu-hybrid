@@ -55,7 +55,13 @@
 "leaq   -16(%rsp), %rsp\n"
 "movdqu  %xmm15, (%rsp)\n"
 #endif
+
+#ifdef BACK_FROM_EMULATION
+"leaq 8(%rax), %rdi\n"         // original RSP (above the pushed constant)
+#else
 "leaq 16(%rax), %rdi\n"         // original RSP (above the pushed constant)
+#endif
+
 "movq %rax, %rsi\n"             // save area
 "leaq 8(%rax), %rbx\n"          // preserve initial RSP
 "call " xstr(SAVE_ROUTINE) "\n" //
