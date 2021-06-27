@@ -7142,10 +7142,25 @@ static int do_openat(void *cpu_env, int dirfd, const char *pathname, int flags, 
         return fd;
     }
 
+    const char* fpath = path(pathname);
+#if 1
+    const char* r1 = "/home/symbolic/qemu-hybrid-test/symcc-hybrid/build/SymRuntime-prefix/src/SymRuntime-build/libSymRuntime.so";
+    const char* r1_fake = "/home/symbolic/qemu-hybrid-test/symcc-hybrid/build/SymFakeRuntime-prefix/src/SymFakeRuntime-build/libSymRuntime.so";
+    const char* r2 = "/symfusion/symcc-hybrid/build/SymRuntime-prefix/src/SymRuntime-build/libSymRuntime.so";
+    const char* r2_fake = "/symfusion/symcc-hybrid/build/SymFakeRuntime-prefix/src/SymFakeRuntime-build/libSymRuntime.so";
+    if (strcmp(fpath, r1) == 0) {
+        fpath = r1_fake;
+        printf("fixing open path: %s\n", fpath);
+    } else if (strcmp(fpath, r2) == 0) {
+        fpath = r2_fake;
+        printf("fixing open path: %s\n", fpath);
+    }
+#endif
+
     if (dirfd == AT_FDCWD)
-        return open_symbolized(path(pathname), flags, mode);
+        return open_symbolized(fpath, flags, mode);
     else
-        return safe_openat(dirfd, path(pathname), flags, mode);
+        return safe_openat(dirfd, fpath, flags, mode);
 }
 
 #define TIMER_MAGIC 0x0caf0000

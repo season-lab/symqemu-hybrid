@@ -108,11 +108,13 @@ static task_t tasks[MAX_TASKS] = {0};
 #define MAX_PLT_ENTRIES 1024
 uint64_t shadow_plt[MAX_PLT_ENTRIES] = {0};
 
-uint64_t       start_addr      = 0;
-static GSList* plt_patches     = NULL;
-static GSList* syscall_patches = NULL;
-static GSList* runtime_patches = NULL;
-static GSList* plt_aliases     = NULL;
+uint64_t       start_addr               = 0;
+static GSList* plt_patches              = NULL;
+static GSList* syscall_patches          = NULL;
+static GSList* runtime_patches          = NULL;
+static GSList* plt_aliases              = NULL;
+static char*   libc_path                = NULL;
+uint64_t       libc_concrete_funcs[256] = {0};
 
 typedef struct {
     char*   name;
@@ -177,12 +179,34 @@ static int parse_config_file(char* file)
         // printf("ADDR: %s\n", res);
         start_addr = (target_ulong)strtoull(res, NULL, 16);
     }
-
+#if 1
+    // libc
+    res = g_key_file_get_value(gkf, "libc", "path", NULL);
+    if (res) {
+        libc_path = strdup(res);
+        printf("LIBC PATH: %s\n", libc_path);
+    }
+    const char* libc_concretize_funcs_names[] = {
+        "__libc_malloc", "__libc_calloc", "__libc_realloc",
+        "__libc_free",   "__printf_chk",  "_IO_printf"};
+    for (int i = 0, j = 0;
+         i < sizeof(libc_concretize_funcs_names) / sizeof(char*); i++) {
+        res = g_key_file_get_value(gkf, "libc", libc_concretize_funcs_names[i],
+                                   NULL);
+        if (res) {
+            printf("LIBC %s at 0x%s\n", libc_concretize_funcs_names[i], res);
+            uint64_t offset = (uint64_t)strtoull(res, NULL, 16);
+            assert(j < sizeof(libc_concrete_funcs) / sizeof(uint64_t));
+            libc_concrete_funcs[j++] = offset;
+        }
+    }
+#endif
     char** groups          = g_key_file_get_groups(gkf, NULL);
     char** groups_original = groups;
     while (*groups != NULL) {
         // printf("group %s\n", *groups);
-        if (strcmp(*groups, "start_addr") != 0) {
+        if (strcmp(*groups, "start_addr") != 0 &&
+            strcmp(*groups, "libc") != 0) {
             GSList* offsets = NULL;
             // int is_main_image = strcmp(*groups, "main_image") == 0;
             char** addrs = g_key_file_get_string_list(gkf, *groups, "patch_plt",
@@ -813,7 +837,8 @@ __asm__(".globl save_native_context_safe\n"
 #undef SAVE_ROUTINE
 #undef PRESERVE_XMM
         //
-        "popq %rdi\n" // plt entry index
+        "popq %rdi\n"  // plt entry index
+        "pushq %rdi\n" // alignment
         "call switch_to_emulated\n"
         //
         ".cfi_endproc");
@@ -852,6 +877,7 @@ __asm__(".globl save_native_context_indirect_call\n"
 #undef PRESERVE_XMM
 #undef BACK_FROM_EMULATION
         //
+        "pushq $0xCAFE\n" // alignment
         "call switch_emulation_indirect_call\n"
         //
         ".cfi_endproc");
@@ -964,8 +990,7 @@ __asm__(".globl dummy_plt_stub\n\t"
         "dummy_plt_stub:\n\t"
         // ".cfi_startproc\n\t"
         //
-        "pushq $0xCAFE"
-        "\n\t"
+        "pushq $0xCAFE\n\t"
         "jmp save_native_context_safe"
         "\n\t"
         //
@@ -1121,6 +1146,22 @@ static uint8_t runtime_plt_stubs[PLT_STUBS_SIZE];
 uint64_t check_indirect_target(uint64_t target, uint64_t* args,
                                uint64_t args_count);
 
+static struct timespec t_init;
+
+static inline void get_time(struct timespec* tp)
+{
+    clockid_t clk_id = CLOCK_MONOTONIC;
+    clock_gettime(clk_id, tp);
+}
+
+static inline uint64_t get_diff_time_microsec(struct timespec* start,
+                                              struct timespec* end)
+{
+    uint64_t r = (end->tv_sec - start->tv_sec) * 1000000000;
+    r += (end->tv_nsec - start->tv_nsec);
+    return (r / 1000);
+}
+
 //__thread
 int  hybrid_init_done = 0;
 void hybrid_init(void)
@@ -1128,6 +1169,7 @@ void hybrid_init(void)
     if (hybrid_init_done)
         return;
 
+    get_time(&t_init);
     printf("DOING INIT\n");
 
     char* res = getenv("HYBRID_CONF_FILE");
@@ -1362,6 +1404,11 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
     // patch PLTs && syscall insns
     if (target == start_addr) {
+
+#if 0
+        struct timespec t0;
+        get_time(&t0);
+#endif
         assert(mode == INITIAL_JUMP_INTO_NATIVE);
 
         mprotect(PAGE_ALIGNED(plt_stubs),
@@ -1646,6 +1693,35 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                        runtime_plt_stubs + sizeof(runtime_plt_stubs));
             }
         }
+#if 1
+        // libc
+        uint64_t libc_base_address = 0;
+        GSList*  next_mmaped_file  = mmaped_files;
+        while (next_mmaped_file != NULL) {
+            mmap_file_t* mmaped_file = (mmap_file_t*)next_mmaped_file->data;
+            next_mmaped_file         = g_slist_next(next_mmaped_file);
+
+            if (strcmp(mmaped_file->name, libc_path) == 0) {
+                libc_base_address = mmaped_file->addr;
+                break;
+            }
+        }
+        for (int i = 0; libc_concrete_funcs[i] > 0 &&
+                        i < sizeof(libc_concrete_funcs) / sizeof(uint64_t);
+             i++) {
+            libc_concrete_funcs[i] += libc_base_address;
+            printf("LIBC FN TO CONCRETIZE at %lx [%lx]\n",
+                   libc_concrete_funcs[i], libc_base_address);
+        }
+#endif
+#if 0
+        struct timespec t1;
+        get_time(&t1);
+        uint64_t delta = get_diff_time_microsec(&t0, &t1);
+        printf("Setup time: %lu\n", delta / 1000);
+        delta = get_diff_time_microsec(&t_init, &t1);
+        printf("Setup time: %lu\n", delta / 1000);
+#endif
     }
 
 #if 0
@@ -1805,7 +1881,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         };
 
         uint8_t args_count = _sym_get_args_count();
-        printf("\nArgument count: %d\n", args_count);
+        // printf("\nArgument count: %d\n", args_count);
 #if 0
         printf("RDI: %lx\n", task->emulated_state->regs[SLOT_RDI]);
         printf("RSI: %lx\n", task->emulated_state->regs[SLOT_RSI]);
@@ -1906,6 +1982,13 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                     uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6,
                     uint64_t arg7, uint64_t arg8)
 {
+    if (0) {
+        struct timespec t1;
+        get_time(&t1);
+        uint64_t delta = get_diff_time_microsec(&t_init, &t1);
+        printf("Time before syscall: %lu\n", delta / 1000);
+    }
+
 #if DEBUG_SYSCALLS
     task_t* task = get_task();
 #endif
@@ -1927,7 +2010,14 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
             }
             break;
         }
-
+#if 1
+        case TARGET_NR_stat: {
+#if DEBUG_SYSCALLS
+            printf("[%lu] SYSCALL: stat(%s) = %d\n", task->tid, (char*) arg1, (int) retval);
+#endif
+            break;
+        }
+#endif
         case TARGET_NR_close: {
             int fd = arg1;
             if (fd >= 0) {
@@ -1978,11 +2068,13 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                         } else
                             tcg_abort();
                     } else {
+#if 0
                         printf("FILE: %s\n", mft->name);
                         printf("Mapping executable code. Removing executable "
                                "permission at %lx...\n",
                                retval);
                         mprotect((void*)retval, arg2, prot & ~PROT_EXEC);
+#endif
                     }
                 }
             }
@@ -2011,13 +2103,29 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
 #endif
             break;
         }
-
+#if 1
+        case TARGET_NR_mprotect: {
+#if DEBUG_SYSCALLS
+            printf("[%lu] SYSCALL: mprotect(%lx, %ld, %ld) = %lx\n", task->tid,
+                   arg1, arg2, arg3, retval);
+#endif
+            break;
+        }
+#endif
         default:
 #if DEBUG_SYSCALLS
             printf("[%lu] SYSCALL: %ld => 0x%lx\n", task->tid, num, retval);
 #endif
             break;
     }
+
+    if (0) {
+        struct timespec t1;
+        get_time(&t1);
+        uint64_t delta = get_diff_time_microsec(&t_init, &t1);
+        printf("Time after syscall: %lu\n", delta / 1000);
+    }
+
     return;
 }
 
@@ -2030,7 +2138,7 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
          (target >= hybrid_start_lib_1 && target <= hybrid_end_lib_1) ||
          (target >= hybrid_start_lib_2 && target <= hybrid_end_lib_2))) {
 
-        if (args == NULL) // this was a check on the target 
+        if (args == NULL) // this was a check on the target
             return 0;
 
         arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
@@ -2040,12 +2148,12 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
         switch (args_count) {
             case 0: {
                 uint64_t (*f)(void) = (uint64_t(*)(void))target;
-                res = f();
+                res                 = f();
                 break;
             }
             case 1: {
                 uint64_t (*f)(uint64_t) = (uint64_t(*)(uint64_t))target;
-                res = f(args[0]);
+                res                     = f(args[0]);
                 break;
             }
             case 2: {
@@ -2087,7 +2195,8 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
                               uint64_t, uint64_t) =
                     (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t,
                                  uint64_t, uint64_t, uint64_t))target;
-                res = f(args[0], args[1], args[2], args[3], args[4], args[5], args[6]);
+                res = f(args[0], args[1], args[2], args[3], args[4], args[5],
+                        args[6]);
                 break;
             }
             default:
@@ -2097,10 +2206,9 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
         printf("res=%lx\n", res);
         arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
         return res;
-    } 
-    else // run in emulation mode
+    } else // run in emulation mode
     {
-        if (args == NULL) // this was a check on the target 
+        if (args == NULL) // this was a check on the target
             tcg_abort();
 
         assert(task->depth < MAX_DEPTH);
@@ -2108,16 +2216,26 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
         task->return_addrs[task->depth - 1] = target;
         assert(args_count <= 6);
         save_native_context_indirect_call(
-            args_count >= 1 ? args[0] : 0,
-            args_count >= 2 ? args[1] : 0,
-            args_count >= 3 ? args[2] : 0,
-            args_count >= 4 ? args[3] : 0,
-            args_count >= 5 ? args[4] : 0,
-            args_count >= 6 ? args[5] : 0 
-        );
+            args_count >= 1 ? args[0] : 0, args_count >= 2 ? args[1] : 0,
+            args_count >= 3 ? args[2] : 0, args_count >= 4 ? args[3] : 0,
+            args_count >= 5 ? args[4] : 0, args_count >= 6 ? args[5] : 0);
         printf("RETURNED FROM EMULATION OF INDIRECT CALL: res=%lx\n",
                task->emulated_state->regs[SLOT_RAX]);
         return task->emulated_state->regs[SLOT_RAX];
     }
     tcg_abort();
+}
+
+void concretize_args(CPUX86State* emulated_state)
+{
+    const char* arg_regs[] = {
+        "rdi_expr", "rsi_expr", "rdx_expr", "rcx_expr", "r8_expr", "r9_expr",
+    };
+
+    for (int i = 0; i < sizeof(arg_regs) / sizeof(char*); i++) {
+        TCGTemp*   reg_expr_tmp = tcg_find_temp_arch_reg(arg_regs[i]);
+        uint64_t** reg_expr = (uint64_t**)((uint64_t)reg_expr_tmp->mem_offset +
+                                           (uint64_t)emulated_state);
+        *reg_expr           = NULL;
+    }
 }

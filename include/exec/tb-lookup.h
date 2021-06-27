@@ -31,6 +31,7 @@ tb_lookup__cpu_state(CPUState *cpu, target_ulong *pc, target_ulong *cs_base,
     
     /* HYBRID */
     // printf("EIP: %lx\n", *pc);
+#if 1
     int fetch_again_cpu_state = 0;
     SWITCH_TO_NATIVE(*pc, env, &fetch_again_cpu_state);
     // THIS IS IMPORTANT: compiler may reorder some assignments!
@@ -60,6 +61,8 @@ tb_lookup__cpu_state(CPUState *cpu, target_ulong *pc, target_ulong *cs_base,
         if (last_tb)
             *last_tb = NULL;
     }
+    LIBC_CONCRETIZE_ARGS(*pc, env);
+#endif
     /* HYBRID */
 
     hash = tb_jmp_cache_hash_func(*pc);

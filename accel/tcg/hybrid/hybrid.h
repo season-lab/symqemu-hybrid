@@ -24,6 +24,7 @@ int  is_hooked_plt_entry(uint64_t target);
 void switch_to_emulated(int plt_entry);
 void switch_to_native(uint64_t target, CPUX86State* env, switch_mode_t mode);
 void switch_back_to_native(uint64_t target, CPUX86State* env);
+void concretize_args(CPUX86State* env);
 extern void save_native_context(void);
 extern void return_handler_from_emulation(void);
 void        hybrid_init(void);
@@ -33,6 +34,8 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
 void hybrid_new_thread(uint64_t tid, CPUX86State* state);
 void hybrid_set_sigill_handler(void);
 int  hybrid_is_task_native(void);
+
+extern uint64_t libc_concrete_funcs[256];
 
 #define MAX_DEPTH 256
 struct CpuContext_t;
@@ -75,6 +78,22 @@ extern abi_ulong hybrid_start_lib_2, hybrid_end_lib_2;
                                       target <= hybrid_end_lib_2))) {          \
             switch_to_native(target, state, EMULATION_TO_NATIVE);              \
             *flag = 1;                                                         \
+        }                                                                      \
+    } while (0)
+
+//        } else if (hybrid_is_task_native()) {
+//            switch_to_native(target, state, FORKED_TASK);
+//            *flag = 1;
+
+#define LIBC_CONCRETIZE_ARGS(target, state)                                    \
+    do {                                                                       \
+        if (reached_start && (target == libc_concrete_funcs[0] ||              \
+                              target == libc_concrete_funcs[1] ||              \
+                              target == libc_concrete_funcs[2] ||              \
+                              target == libc_concrete_funcs[3] ||              \
+                              target == libc_concrete_funcs[4] ||              \
+                              target == libc_concrete_funcs[5])) {             \
+            concretize_args(state);                                            \
         }                                                                      \
     } while (0)
 
