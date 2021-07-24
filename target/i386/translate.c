@@ -3209,7 +3209,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                 tcg_gen_trunc_tl_i32(s->tmp2_i32, s->T0);
 #ifdef SYM_HELPERS
                 TCGv zero = tcg_const_tl(0);
-                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i32_expr(s->tmp2_i32));
+                gen_helper_sym_init_args_2_void((TCGv_ptr) zero, tcgv_i32_expr(s->tmp2_i32));
                 gen_helper_movl_mm_T0_xmm_symbolized(s->ptr0, s->tmp2_i32);
                 tcg_temp_free(zero);
 #else
@@ -5096,7 +5096,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             TCGv reg_id_edx = tcg_const_tl(R_EDX);
             gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EAX]), reg_id_eax);
             gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EDX]), reg_id_edx);
-            gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+            gen_helper_sym_init_args_2_void((TCGv_ptr) zero, tcgv_i64_expr(s->T0));
 #endif
             switch(ot) {
             case MO_8:

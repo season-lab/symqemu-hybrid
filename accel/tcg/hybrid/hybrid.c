@@ -10,6 +10,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <sys/sysinfo.h>
 
 #include "qemu/osdep.h"
 #include "cpu.h"
@@ -33,6 +34,14 @@
 #define SymExpr void*
 #include "RuntimeCommon.h"
 #undef SymExpr
+
+#include "hybrid_debug.h"
+
+#if !HYBRID_DBG_PRINT
+#define printf(...)                                                            \
+    {                                                                          \
+    }
+#endif
 
 #define SAVE_GPR(reg, slot)                                                    \
     "movq $" str(slot) ", %rcx"                                                \
@@ -116,6 +125,9 @@ static GSList* plt_aliases              = NULL;
 static char*   libc_path                = NULL;
 uint64_t       libc_concrete_funcs[256] = {0};
 
+uint64_t libc_setjmp_addr[2]  = {0};
+uint64_t libc_longjmp_addr[2] = {0};
+
 typedef struct {
     char*   name;
     GSList* offsets;
@@ -187,8 +199,9 @@ static int parse_config_file(char* file)
         printf("LIBC PATH: %s\n", libc_path);
     }
     const char* libc_concretize_funcs_names[] = {
-        "__libc_malloc", "__libc_calloc", "__libc_realloc",
-        "__libc_free",   "__printf_chk",  "_IO_printf"};
+        "__libc_malloc", "__libc_calloc", "__libc_realloc", "__libc_free",
+        "__printf_chk",  "_IO_printf",    "__snprintf_chk", "__vsnprintf_chk",
+        "__snprintf",    "__vsnprintf",   "_IO_vfprintf",   "_vfprintf_chk"};
     for (int i = 0, j = 0;
          i < sizeof(libc_concretize_funcs_names) / sizeof(char*); i++) {
         res = g_key_file_get_value(gkf, "libc", libc_concretize_funcs_names[i],
@@ -199,6 +212,30 @@ static int parse_config_file(char* file)
             assert(j < sizeof(libc_concrete_funcs) / sizeof(uint64_t));
             libc_concrete_funcs[j++] = offset;
         }
+    }
+    res = g_key_file_get_value(gkf, "libc", "__sigsetjmp", NULL);
+    if (res) {
+        printf("__sigsetjmp at 0x%s\n", res);
+        uint64_t offset     = (uint64_t)strtoull(res, NULL, 16);
+        libc_setjmp_addr[0] = offset;
+    }
+    res = g_key_file_get_value(gkf, "libc", "_setjmp", NULL);
+    if (res) {
+        printf("_setjmp at 0x%s\n", res);
+        uint64_t offset     = (uint64_t)strtoull(res, NULL, 16);
+        libc_setjmp_addr[1] = offset;
+    }
+    res = g_key_file_get_value(gkf, "libc", "__libc_siglongjmp", NULL);
+    if (res) {
+        printf("__libc_siglongjmp at 0x%s\n", res);
+        uint64_t offset      = (uint64_t)strtoull(res, NULL, 16);
+        libc_longjmp_addr[0] = offset;
+    }
+    res = g_key_file_get_value(gkf, "libc", "__libc_longjmp", NULL);
+    if (res) {
+        printf("__libc_longjmp at 0x%s\n", res);
+        uint64_t offset      = (uint64_t)strtoull(res, NULL, 16);
+        libc_longjmp_addr[1] = offset;
     }
 #endif
     char** groups          = g_key_file_get_groups(gkf, NULL);
@@ -1052,12 +1089,65 @@ void switch_to_emulated(int plt_entry)
     task->return_addrs[task->depth - 1] = *(ret_addr);
 
     *(ret_addr) = (uint64_t)return_handler_from_emulation;
+    _sym_write_memory((uint8_t*)ret_addr, sizeof(void *), NULL, 1);
     assert(plt_entry >= 0 && plt_entry < plt_stubs_count);
     task->emulated_state->eip = shadow_plt[plt_entry];
 
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
+
+    if (libc_setjmp_addr[0] == task->emulated_state->eip ||
+        libc_setjmp_addr[1] == task->emulated_state->eip) {
+        assert(task->long_jumps_used < MAX_DEPTH - 1);
+
+        int index    = 0;
+        int existing = 0;
+        while (index < task->long_jumps_used) {
+            if (task->longjmp[index] == task->return_addrs[task->depth - 1] &&
+                task->longjmp_arg[index] ==
+                    task->emulated_state->regs[SLOT_RDI] &&
+                task->longjmp_callsite[index] == _sym_get_call_site()) {
+                existing = 1;
+                break;
+            }
+            index += 1;
+        }
+
+        if (!existing) {
+            task->longjmp[task->long_jumps_used] =
+                task->return_addrs[task->depth - 1];
+            task->longjmp_arg[task->long_jumps_used] =
+                task->emulated_state->regs[SLOT_RDI];
+            task->longjmp_depth[task->long_jumps_used] = task->depth;
+            task->longjmp_callsite[task->long_jumps_used] =
+                _sym_get_call_site();
+            printf("[%ld] SAVING JMP TO %lx WITH ARG %lx callsite=%lx\n",
+                   task->long_jumps_used, task->longjmp[task->long_jumps_used],
+                   task->longjmp_arg[task->long_jumps_used],
+                   _sym_get_call_site());
+            task->long_jumps_used += 1;
+        }
+    } else if (libc_longjmp_addr[0] == task->emulated_state->eip ||
+               libc_longjmp_addr[1] == task->emulated_state->eip) {
+        int index = task->long_jumps_used - 1;
+        while (index >= 0) {
+            if (task->longjmp_arg[index] ==
+                task->emulated_state->regs[SLOT_RDI])
+                break;
+            index -= 1;
+        }
+        assert(index >= 0);
+        // FIXME: we should track RSP values...
+        printf("ADJUSTING DEPTH FRO %ld to %ld for callsite %lx\n", task->depth,
+               task->longjmp_depth[index], task->longjmp_callsite[index]);
+        task->depth                         = task->longjmp_depth[index];
+        task->return_addrs[task->depth - 1] = task->longjmp[index];
+
+        _sym_notify_call(task->longjmp_callsite[index]);
+        // tcg_abort();
+    }
+
     _sym_notify_call((uint64_t)return_handler_from_emulation);
     arch_prctl(ARCH_SET_FS, base);
 
@@ -1080,6 +1170,7 @@ void switch_back_emulation(void)
 
     // fix pc
     assert(task->depth >= 0 && task->depth <= MAX_DEPTH);
+    // FIXME: should we check rsp?
     task->native_context->pc = task->return_addrs[task->depth - 1];
     task->depth -= 1;
 
@@ -1116,6 +1207,7 @@ void switch_emulation_indirect_call(void)
     assert(task->depth >= 0 && task->depth <= MAX_DEPTH);
     task->return_addrs[task->depth - 1] = *(ret_addr);
     *(ret_addr) = (uint64_t)return_handler_from_emulation;
+    _sym_write_memory((uint8_t*)ret_addr, sizeof(void *), NULL, 1);
 
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
@@ -1293,6 +1385,15 @@ static uint64_t get_runtime_function_addr(char* name)
     RUNTIME_FN_PTR(name, _sym_indirect_call_set_arg_int);
     RUNTIME_FN_PTR(name, _sym_indirect_call_set_arg_count);
     RUNTIME_FN_PTR(name, _sym_check_indirect_call_target);
+    RUNTIME_FN_PTR(name, _sym_build_float_unordered_greater_equal);
+    RUNTIME_FN_PTR(name, _sym_build_float_unordered);
+    RUNTIME_FN_PTR(name, _sym_build_float_unordered_less_equal);
+    RUNTIME_FN_PTR(name, _sym_build_float_unordered_equal);
+    RUNTIME_FN_PTR(name, _sym_build_fp_abs);
+    RUNTIME_FN_PTR(name, _sym_build_fp_sub);
+    RUNTIME_FN_PTR(name, _sym_check_consistency);
+    RUNTIME_FN_PTR(name, _sym_va_list_start);
+    RUNTIME_FN_PTR(name, _sym_build_bool_to_sign_bits);
 
     printf("Add me:\n\t%s\n", name);
     tcg_abort();
@@ -1356,8 +1457,10 @@ void* get_temp_expr(const char* temp_name)
         if (current_bits < 64) {
             *ret_val_expr = _sym_build_zext(*ret_val_expr, 64 - current_bits);
         }
+#if HYBRID_DBG_PRINT
         const char* s_expr = _sym_expr_to_string(*ret_val_expr);
         printf("%s: len=%ld %s\n", temp_name, current_bits, s_expr);
+#endif
     }
     return *ret_val_expr;
 }
@@ -1372,6 +1475,8 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
     task->emulated_state = state;
 
+    concretize_args(target, state, task);
+
     // uint64_t original_target = target;
 
     if (mode == RETURN_FROM_EMULATION) {
@@ -1381,8 +1486,8 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         native_cpu_context->pc     = task->return_addrs[task->depth - 1];
         target                     = native_cpu_context->pc;
         task->emulated_context->pc = native_cpu_context->pc;
-
         task->depth -= 1;
+
     } else if (mode == EMULATION_TO_NATIVE) {
         assert(task->depth > 0);
 
@@ -1713,6 +1818,14 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
             printf("LIBC FN TO CONCRETIZE at %lx [%lx]\n",
                    libc_concrete_funcs[i], libc_base_address);
         }
+        libc_setjmp_addr[0] += libc_base_address;
+        libc_setjmp_addr[1] += libc_base_address;
+        printf("SIGSETJMP at %lx [%lx]\n", libc_setjmp_addr[0],
+               libc_base_address);
+        libc_longjmp_addr[0] += libc_base_address;
+        libc_longjmp_addr[1] += libc_base_address;
+        printf("SIGLONGJMP at %lx [%lx]\n", libc_longjmp_addr[0],
+               libc_base_address);
 #endif
 #if 0
         struct timespec t1;
@@ -1832,9 +1945,11 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                         // *ret_val_expr = _sym_build_zext(*ret_val_expr, 64 -
                         // current_bits);
                     }
+#if HYBRID_DBG_PRINT
                     const char* s_expr = _sym_expr_to_string(*reg_expr);
                     printf("%s: len=%ld %s\n", arg_regs[i], current_bits,
                            s_expr);
+#endif
                     _sym_set_parameter_expression(i, *reg_expr);
                 }
             }
@@ -1914,8 +2029,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                             if (current_bits < 64) {
                                 expr = _sym_build_zext(expr, 64 - current_bits);
                             }
-                            const char* s_expr = _sym_expr_to_string(expr);
-                            printf("%s: %s\n", arg_regs[int_arg_count], s_expr);
+                            printf("%s: %s\n", arg_regs[int_arg_count], _sym_expr_to_string(expr));
                         }
                         *arg_expr = expr;
                     }
@@ -1942,6 +2056,17 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                 }
                 int_arg_count++;
             }
+        }
+
+        // RAX is used in variadic functions for # of FP args
+        TCGTemp* arg = tcg_find_temp_arch_reg("rax_expr");
+        uint64_t **arg_expr = (uint64_t **)((uint64_t)arg->mem_offset + (uint64_t)task->emulated_state);
+        *arg_expr = NULL;
+
+        // we reset symbolically the XMM regs...
+        for (int i = 0; i < 8; i++) {
+            _sym_write_memory((uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[0], 8, NULL, 1);
+            _sym_write_memory((uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[1], 8, NULL, 1);
         }
 #if 0
         for (int i = int_arg_count; i < sizeof(arg_regs) / sizeof(char *); i++)
@@ -1978,16 +2103,19 @@ void hybrid_stub(task_t* task)
 }
 
 #define DEBUG_SYSCALLS 1
+#define DEBUG_SYSCALLS_TIME 0
 void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                     uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6,
                     uint64_t arg7, uint64_t arg8)
 {
-    if (0) {
+#if DEBUG_SYSCALLS_TIME
+    {
         struct timespec t1;
         get_time(&t1);
         uint64_t delta = get_diff_time_microsec(&t_init, &t1);
         printf("Time before syscall: %lu\n", delta / 1000);
     }
+#endif
 
 #if DEBUG_SYSCALLS
     task_t* task = get_task();
@@ -2013,7 +2141,8 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
 #if 1
         case TARGET_NR_stat: {
 #if DEBUG_SYSCALLS
-            printf("[%lu] SYSCALL: stat(%s) = %d\n", task->tid, (char*) arg1, (int) retval);
+            printf("[%lu] SYSCALL: stat(%s) = %d\n", task->tid, (char*)arg1,
+                   (int)retval);
 #endif
             break;
         }
@@ -2058,7 +2187,8 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                     // instrumented...
                     if ((strcmp(name, "libc++.so.1") == 0 ||
                          strcmp(name, "libc++abi.so.1") == 0) &&
-                        strstr(mft->name, "libcxx_symcc") != NULL) {
+                        (strstr(mft->name, "libcxx_symcc") != NULL ||
+                         strstr(mft->name, "libcxx_install") != NULL)) {
                         if (strcmp(name, "libc++.so.1") == 0) {
                             hybrid_start_lib_1 = retval;
                             hybrid_end_lib_1   = retval + arg2;
@@ -2103,7 +2233,7 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
 #endif
             break;
         }
-#if 1
+
         case TARGET_NR_mprotect: {
 #if DEBUG_SYSCALLS
             printf("[%lu] SYSCALL: mprotect(%lx, %ld, %ld) = %lx\n", task->tid,
@@ -2111,7 +2241,16 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
 #endif
             break;
         }
+
+        case TARGET_NR_sysinfo: {
+#if DEBUG_SYSCALLS
+            printf("[%lu] SYSCALL: sysinfo(%lx) = %lx\n", task->tid, arg1,
+                   retval);
 #endif
+            _sym_write_memory((uint8_t*)arg1, sizeof(struct sysinfo), NULL, 1);
+            break;
+        }
+
         default:
 #if DEBUG_SYSCALLS
             printf("[%lu] SYSCALL: %ld => 0x%lx\n", task->tid, num, retval);
@@ -2119,12 +2258,14 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
             break;
     }
 
-    if (0) {
+#if DEBUG_SYSCALLS_TIME
+    {
         struct timespec t1;
         get_time(&t1);
         uint64_t delta = get_diff_time_microsec(&t_init, &t1);
         printf("Time after syscall: %lu\n", delta / 1000);
     }
+#endif
 
     return;
 }
@@ -2132,6 +2273,12 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
 uint64_t check_indirect_target(uint64_t target, uint64_t* args,
                                uint64_t args_count)
 {
+#if 0
+    uint64_t* a = (uint64_t*)0x40007fead0;
+    if (*a == 0x40007feae0)
+        printf("VALUE %lx AT %lx\n", 0x40007feae0, 0x40007fead0);
+    // assert(*a != 0x40007feae0);
+#endif
     task_t* task = get_task();
     if (reached_start &&
         ((target >= hybrid_start_code && target <= hybrid_end_code) ||
@@ -2199,11 +2346,103 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
                         args[6]);
                 break;
             }
+            case 8: {
+                uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t) =
+                    (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t))target;
+                res = f(args[0], args[1], args[2], args[3], args[4], args[5],
+                        args[6], args[7]);
+                break;
+            }
+            case 9: {
+                uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t, uint64_t) =
+                    (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t))target;
+                res = f(args[0], args[1], args[2], args[3], args[4], args[5],
+                        args[6], args[7], args[8]);
+                break;
+            }
+            case 10: {
+                uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t) =
+                    (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t))target;
+                res = f(args[0], args[1], args[2], args[3], args[4], args[5],
+                        args[6], args[7], args[8], args[9]);
+                break;
+            }
+            case 11: {
+                uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t) =
+                    (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t))target;
+                res = f(args[0], args[1], args[2], args[3], args[4], args[5],
+                        args[6], args[7], args[8], args[9], args[10]);
+                break;
+            }
+            case 12: {
+                uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t) =
+                    (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t))target;
+                res = f(args[0], args[1], args[2], args[3], args[4], args[5],
+                        args[6], args[7], args[8], args[9], args[10], args[11]);
+                break;
+            }
+            case 13: {
+                uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t) =
+                    (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t))target;
+                res = f(args[0], args[1], args[2], args[3], args[4], args[5],
+                        args[6], args[7], args[8], args[9], args[10], args[11],
+                        args[12]);
+                break;
+            }
+            case 14: {
+                uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t, uint64_t) =
+                    (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t))target;
+                res = f(args[0], args[1], args[2], args[3], args[4], args[5],
+                        args[6], args[7], args[8], args[9], args[10], args[11],
+                        args[12], args[13]);
+                break;
+            }
+            case 15: {
+                uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t, uint64_t, uint64_t, uint64_t,
+                              uint64_t) =
+                    (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t, uint64_t,
+                                 uint64_t, uint64_t, uint64_t))target;
+                res = f(args[0], args[1], args[2], args[3], args[4], args[5],
+                        args[6], args[7], args[8], args[9], args[10], args[11],
+                        args[12], args[13], args[14]);
+                break;
+            }
             default:
-                assert(0 && "Indirect call with more than 6 arguments.");
+                assert(0 && "Indirect call with more than 15 arguments.");
         }
         arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
-        printf("res=%lx\n", res);
+        printf("indirect call target=%lx res=%lx\n", target, res);
         arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
         return res;
     } else // run in emulation mode
@@ -2226,8 +2465,35 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
     tcg_abort();
 }
 
-void concretize_args(CPUX86State* emulated_state)
+void concretize_args(uint64_t target, CPUX86State* emulated_state, task_t* task)
 {
+    if (!reached_start)
+        return;
+
+    int found = 0;
+    for (int i = 0; i < sizeof(libc_concrete_funcs) / sizeof(uint64_t); i++) {
+        if (libc_concrete_funcs[i] == 0)
+            break;
+        if (libc_concrete_funcs[i] == target) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found) {
+        if (task == NULL)
+            task = get_task();
+
+        if (task->concretized_rsp_point ==
+            task->emulated_state->regs[SLOT_RSP]) {
+            task->concretized_rsp_point = 0;
+            printf("DISABLING CONCRETIZATION: %lx\n",
+                   task->concretized_rsp_point);
+            _sym_set_concrete_mode(0);
+        }
+        return;
+    }
+
     const char* arg_regs[] = {
         "rdi_expr", "rsi_expr", "rdx_expr", "rcx_expr", "r8_expr", "r9_expr",
     };
@@ -2238,4 +2504,20 @@ void concretize_args(CPUX86State* emulated_state)
                                            (uint64_t)emulated_state);
         *reg_expr           = NULL;
     }
+
+    if (task == NULL)
+        task = get_task();
+
+    uint64_t point = task->emulated_state->regs[SLOT_RSP] + 8;
+    if (task->concretized_rsp_point == point)
+        return;
+
+    if (task->concretized_rsp_point != 0) {
+        printf("\nRECURSIVE CONCRETIZATION at %lx\n", point);
+        return;
+    }
+
+    task->concretized_rsp_point = point;
+    printf("\nENABLING CONCRETIZATION at %lx\n", task->concretized_rsp_point);
+    _sym_set_concrete_mode(1);
 }

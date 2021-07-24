@@ -20,11 +20,34 @@ typedef enum {
     FORKED_TASK,
 } switch_mode_t;
 
+#define MAX_DEPTH 256
+struct CpuContext_t;
+typedef struct {
+    uint64_t             tid;
+    struct CpuContext_t* native_context;
+    struct CpuContext_t* emulated_context;
+    struct CpuContext_t* qemu_context;
+    CPUX86State*         emulated_state;
+    int64_t              depth;
+    uint64_t             return_addrs[MAX_DEPTH];
+    //
+    int64_t              long_jumps_used;
+    uint64_t             longjmp[MAX_DEPTH];
+    uint64_t             longjmp_arg[MAX_DEPTH];
+    uint64_t             longjmp_depth[MAX_DEPTH];
+    uint64_t             longjmp_callsite[MAX_DEPTH];
+    //
+    uint64_t             concretized_rsp_point;
+    //
+    bool                 is_native;
+    bool                 must_exit;
+} task_t;
+
 int  is_hooked_plt_entry(uint64_t target);
 void switch_to_emulated(int plt_entry);
 void switch_to_native(uint64_t target, CPUX86State* env, switch_mode_t mode);
 void switch_back_to_native(uint64_t target, CPUX86State* env);
-void concretize_args(CPUX86State* env);
+void concretize_args(uint64_t target, CPUX86State* env, task_t* task);
 extern void save_native_context(void);
 extern void return_handler_from_emulation(void);
 void        hybrid_init(void);
@@ -36,20 +59,6 @@ void hybrid_set_sigill_handler(void);
 int  hybrid_is_task_native(void);
 
 extern uint64_t libc_concrete_funcs[256];
-
-#define MAX_DEPTH 256
-struct CpuContext_t;
-typedef struct {
-    uint64_t             tid;
-    struct CpuContext_t* native_context;
-    struct CpuContext_t* emulated_context;
-    struct CpuContext_t* qemu_context;
-    CPUX86State*         emulated_state;
-    int64_t              depth;
-    uint64_t             return_addrs[MAX_DEPTH];
-    bool                 is_native;
-    bool                 must_exit;
-} task_t;
 
 task_t* get_task(void);
 void    hybrid_stub(task_t* task);
@@ -85,16 +94,6 @@ extern abi_ulong hybrid_start_lib_2, hybrid_end_lib_2;
 //            switch_to_native(target, state, FORKED_TASK);
 //            *flag = 1;
 
-#define LIBC_CONCRETIZE_ARGS(target, state)                                    \
-    do {                                                                       \
-        if (reached_start && (target == libc_concrete_funcs[0] ||              \
-                              target == libc_concrete_funcs[1] ||              \
-                              target == libc_concrete_funcs[2] ||              \
-                              target == libc_concrete_funcs[3] ||              \
-                              target == libc_concrete_funcs[4] ||              \
-                              target == libc_concrete_funcs[5])) {             \
-            concretize_args(state);                                            \
-        }                                                                      \
-    } while (0)
+#define LIBC_CONCRETIZE_ARGS(target, state) concretize_args(target, state, NULL)
 
 #endif // HYBRID_H

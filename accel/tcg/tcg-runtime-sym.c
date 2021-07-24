@@ -26,6 +26,8 @@
 #define SymExpr void*
 #include "RuntimeCommon.h"
 
+#include "hybrid/hybrid_debug.h"
+
 /* Returning NULL for unimplemented functions is equivalent to concretizing and
  * allows us to run without all symbolic handlers fully implemented. */
 
@@ -37,10 +39,19 @@
  * for the corresponding expressions, it expands into code that returns early if
  * both expressions are NULL and otherwise creates the missing expression.*/
 
+#if HYBRID_DBG_CONSISTENCY_CHECK
+#define CHECK_CONSISTENCY _sym_check_consistency
+#else
+#define CHECK_CONSISTENCY(...) {}
+#endif
+
 #define BINARY_HELPER_ENSURE_EXPRESSIONS                                       \
     if (arg1_expr == NULL && arg2_expr == NULL) {                              \
         return NULL;                                                           \
     }                                                                          \
+                                                                               \
+    CHECK_CONSISTENCY(arg1_expr, arg1, 0);                                     \
+    CHECK_CONSISTENCY(arg2_expr, arg2, 0);                                     \
                                                                                \
     if (arg1_expr == NULL) {                                                   \
         arg1_expr = _sym_build_integer(arg1, _sym_bits_helper(arg2_expr));     \
@@ -303,7 +314,10 @@ static void *sym_load_guest_internal(CPUArchState *env,
                                      target_ulong mmu_idx)
 {
     /* Try an alternative address */
-    if (addr_expr != NULL) {
+    if (addr_expr != NULL && !_sym_is_concrete_mode_enabled()) {
+#if HYBRID_DBG_CONSISTENCY_CHECK
+        _sym_check_consistency(addr_expr, addr, get_pc(env));
+#endif
         void* condition = _sym_build_equal(
                 addr_expr, _sym_build_integer(addr, sizeof(addr) * 8));
 #if 0
@@ -344,6 +358,9 @@ static void sym_store_guest_internal(CPUArchState *env,
 {
     /* Try an alternative address */
     if (addr_expr != NULL) {
+#if HYBRID_DBG_CONSISTENCY_CHECK
+        _sym_check_consistency(addr_expr, addr, get_pc(env));
+#endif
         void* condition = _sym_build_equal(
                 addr_expr, _sym_build_integer(addr, sizeof(addr) * 8));
 #if 0
@@ -628,7 +645,7 @@ static void *sym_setcond_internal(CPUArchState *env,
     printf("QUERY AT %lx: %s\n", get_pc(env), s_expr);
 #endif
     _sym_push_path_constraint(condition, result, get_pc(env));
-
+    
     return _sym_build_bool_to_bits(condition, result_bits);
 }
 
