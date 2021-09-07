@@ -31,6 +31,8 @@
 #include "trace-tcg.h"
 #include "trace/mem.h"
 
+#include "../../accel/tcg/hybrid/hybrid_debug.h"
+
 /* Reduce the number of ifdefs below.  This assumes that all uses of
    TCGV_HIGH and TCGV_LOW are properly protected by a conditional that
    the compiler can eliminate.  */
@@ -208,6 +210,23 @@ void tcg_gen_ldst_op_i64(TCGOpcode opc, TCGv_i64 val,
     tcg_temp_free_i64(offset_temp);
 
     tcg_gen_op3(opc, tcgv_i64_arg(val), tcgv_ptr_arg(base), offset);
+
+#if HYBRID_DBG_CONSISTENCY_CHECK
+    switch(opc) {
+        case INDEX_op_st8_i64:
+        case INDEX_op_st16_i64:
+        case INDEX_op_st32_i64:
+        case INDEX_op_st_i64: {
+            TCGv zero = tcg_const_tl(0);
+            gen_helper_sym_check_consistency(
+                tcgv_i64_expr(val), val, zero);
+            tcg_temp_free_i64(zero);
+            break;
+        }
+        default:
+            break;
+    }
+#endif
 }
 
 void tcg_gen_mb(TCGBar mb_type)

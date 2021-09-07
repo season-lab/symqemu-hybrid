@@ -68,12 +68,14 @@ extern abi_ulong hybrid_start_code, hybrid_end_code;
 extern abi_ulong hybrid_start_lib_1, hybrid_end_lib_1;
 extern abi_ulong hybrid_start_lib_2, hybrid_end_lib_2;
 
+#define RETURN_FROM_EMULATION_SENTINEL 0xDEADBEEF
+
 #define SWITCH_TO_NATIVE(target, state, flag)                                  \
     do {                                                                       \
         if (target == start_addr) {                                            \
             switch_to_native(target, state, INITIAL_JUMP_INTO_NATIVE);         \
             *flag = 1;                                                         \
-        } else if (target == (target_ulong)return_handler_from_emulation) {    \
+        } else if (target == (target_ulong)RETURN_FROM_EMULATION_SENTINEL) {    \
             switch_to_native(target, state, RETURN_FROM_EMULATION);            \
             *flag = 1;                                                         \
         } else if (hybrid_is_task_native()) {                                  \

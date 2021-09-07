@@ -102,6 +102,8 @@ DEF_HELPER_FLAGS_5(sym_store_host_i32, TCG_CALL_NO_RWG, void, i32, ptr, ptr,
 DEF_HELPER_FLAGS_5(sym_store_host_i64, TCG_CALL_NO_RWG, void, i64, ptr, ptr,
                    i64, i64)
 
+DEF_HELPER_FLAGS_3(sym_check_consistency, TCG_CALL_NO_RWG, void, ptr, i64, i64)
+
 /* Bit fields */
 DEF_HELPER_FLAGS_3(sym_extract_i32, TCG_CALL_NO_RWG_SE, ptr, ptr, i32, i32)
 DEF_HELPER_FLAGS_3(sym_extract_i64, TCG_CALL_NO_RWG_SE, ptr, ptr, i64, i64)

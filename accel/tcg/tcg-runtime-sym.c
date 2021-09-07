@@ -373,6 +373,32 @@ static void sym_store_guest_internal(CPUArchState *env,
     }
     void *host_addr = tlb_vaddr_to_host(env, addr, MMU_DATA_STORE, mmu_idx);
     _sym_write_memory((uint8_t*)host_addr, length, value_expr, true);
+
+#if HYBRID_DBG_CONSISTENCY_CHECK
+    if (length <= 8) {
+        uint64_t expected_value;
+        switch(length) {
+        case 1:
+            expected_value = *((uint8_t*)addr);
+            break;
+        case 2:
+            expected_value = *((uint16_t*)addr);
+            break;
+        case 4:
+            expected_value = *((uint32_t*)addr);
+            break;
+        case 8:
+            expected_value = *((uint64_t*)addr);
+            break;
+        default:
+            printf("READ SIZE: %ld\n", length);
+            assert(0 && "Unexpected read size");
+        }
+        if (value_expr)
+            printf("Check write consistency\n");
+        _sym_check_consistency(value_expr, expected_value, (uint64_t) host_addr);
+    }
+#endif
 }
 
 void HELPER(sym_store_guest_i32)(CPUArchState *env,
@@ -489,6 +515,9 @@ void *HELPER(sym_extract2_i32)(uint32_t ah, void *ah_expr,
     if (al_expr == NULL)
         al_expr = _sym_build_integer(al, 32);
 
+    CHECK_CONSISTENCY(ah_expr, ah, 0);
+    CHECK_CONSISTENCY(al_expr, al, 0);
+
     /* The implementation follows the alternative implementation of
      * tcg_gen_extract2_i32 in tcg-op.c (which handles architectures that don't
      * support extract2 directly). */
@@ -520,6 +549,9 @@ void *HELPER(sym_extract2_i64)(uint64_t ah, void *ah_expr,
 
     if (al_expr == NULL)
         al_expr = _sym_build_integer(al, 64);
+
+    CHECK_CONSISTENCY(ah_expr, ah, 0);
+    CHECK_CONSISTENCY(al_expr, al, 0);
 
     /* The implementation follows the alternative implementation of
      * tcg_gen_extract2_i64 in tcg-op.c (which handles architectures that don't
@@ -685,4 +717,9 @@ void HELPER(sym_notify_block)(uint64_t block_id)
 void HELPER(sym_collect_garbage)(void)
 {
     _sym_collect_garbage();
+}
+
+void HELPER(sym_check_consistency)(void *expr, uint64_t value, uint64_t site_id)
+{
+    _sym_check_consistency(expr, value, site_id);
 }

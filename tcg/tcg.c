@@ -4174,7 +4174,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
 #endif
 
 #ifdef SYM_HELPERS   
-    sym_check_helpers(tb, tcg_ctx);
+    // sym_check_helpers(tb, tcg_ctx);
 #endif
 
     tcg_reg_alloc_start(s);

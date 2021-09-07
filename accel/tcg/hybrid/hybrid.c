@@ -110,6 +110,8 @@ typedef struct CpuContext_t {
 abi_ulong hybrid_entry_point, hybrid_start_code, hybrid_end_code;
 abi_ulong hybrid_start_lib_1, hybrid_end_lib_1;
 abi_ulong hybrid_start_lib_2, hybrid_end_lib_2;
+extern uint64_t hybrid2_start_lib_1, hybrid2_end_lib_1;
+extern uint64_t hybrid2_start_lib_2, hybrid2_end_lib_2;
 
 #define MAX_TASKS 64
 static task_t tasks[MAX_TASKS] = {0};
@@ -1067,11 +1069,13 @@ __asm__(".globl dummy_runtime_plt_stub\n\t"
         // ".cfi_endproc"
 );
 
+#if 0
 void return_handler_from_emulation(void)
 {
     assert(0 &&
            "This should never be executed since QEMU should intercept it.");
 }
+#endif
 
 void switch_to_emulated(int plt_entry)
 {
@@ -1088,7 +1092,7 @@ void switch_to_emulated(int plt_entry)
     assert(task->depth >= 0 && task->depth <= MAX_DEPTH);
     task->return_addrs[task->depth - 1] = *(ret_addr);
 
-    *(ret_addr) = (uint64_t)return_handler_from_emulation;
+    *(ret_addr) = RETURN_FROM_EMULATION_SENTINEL;
     _sym_write_memory((uint8_t*)ret_addr, sizeof(void *), NULL, 1);
     assert(plt_entry >= 0 && plt_entry < plt_stubs_count);
     task->emulated_state->eip = shadow_plt[plt_entry];
@@ -1148,7 +1152,7 @@ void switch_to_emulated(int plt_entry)
         // tcg_abort();
     }
 
-    _sym_notify_call((uint64_t)return_handler_from_emulation);
+    _sym_notify_call(RETURN_FROM_EMULATION_SENTINEL);
     arch_prctl(ARCH_SET_FS, base);
 
     // return into QEMU
@@ -1206,7 +1210,7 @@ void switch_emulation_indirect_call(void)
     task->depth += 1;
     assert(task->depth >= 0 && task->depth <= MAX_DEPTH);
     task->return_addrs[task->depth - 1] = *(ret_addr);
-    *(ret_addr) = (uint64_t)return_handler_from_emulation;
+    *(ret_addr) = RETURN_FROM_EMULATION_SENTINEL;
     _sym_write_memory((uint8_t*)ret_addr, sizeof(void *), NULL, 1);
 
     uint64_t base;
@@ -1216,7 +1220,7 @@ void switch_emulation_indirect_call(void)
            task->depth, task->emulated_state->eip,
            task->emulated_state->regs[SLOT_RSP],
            task->emulated_state->regs[SLOT_RDI]);
-    _sym_notify_call((uint64_t)return_handler_from_emulation);
+    _sym_notify_call(RETURN_FROM_EMULATION_SENTINEL);
     arch_prctl(ARCH_SET_FS, base);
 
     restore_qemu_context(task->qemu_context);
@@ -1394,6 +1398,8 @@ static uint64_t get_runtime_function_addr(char* name)
     RUNTIME_FN_PTR(name, _sym_check_consistency);
     RUNTIME_FN_PTR(name, _sym_va_list_start);
     RUNTIME_FN_PTR(name, _sym_build_bool_to_sign_bits);
+    RUNTIME_FN_PTR(name, _sym_build_float_ordered_not_equal);
+    RUNTIME_FN_PTR(name, _sym_build_float_ordered);
 
     printf("Add me:\n\t%s\n", name);
     tcg_abort();
@@ -1474,6 +1480,9 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
     CpuContext* native_cpu_context = task->native_context;
 
     task->emulated_state = state;
+
+    // fprintf(stderr, "LIB: START=%lx END=%lx INDIRECT=%lx\n", hybrid_start_code, hybrid_end_code, check_indirect_target);
+    // tcg_abort();
 
     concretize_args(target, state, task);
 
@@ -1957,6 +1966,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
         printf("\n[depth=%ld] Resuming native to 0x%lx [0x%lx]\n", task->depth,
                target, task->emulated_context->pc);
+
         restore_native_context(task->emulated_context, target);
     } else {
 #if 0
@@ -2032,6 +2042,19 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                             printf("%s: %s\n", arg_regs[int_arg_count], _sym_expr_to_string(expr));
                         }
                         *arg_expr = expr;
+
+#if HYBRID_DBG_CONSISTENCY_CHECK
+                        const int arg_regs_id[] = {
+                            SLOT_RDI,
+                            SLOT_RSI,
+                            SLOT_RDX,
+                            SLOT_RCX,
+                            SLOT_R8,
+                            SLOT_R9
+                        };
+                        // fprintf(stderr, "Checking arg reg %s consistency\n", arg_regs[int_arg_count]);
+                        _sym_check_consistency(expr, task->emulated_state->regs[arg_regs_id[int_arg_count]], task->emulated_state->eip);
+#endif
                     }
                 } else {
                     uint64_t arg_stack_index = int_arg_count - 6;
@@ -2185,16 +2208,23 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                     char* name = basename(mft->name);
                     // FIXME: do this for all libs that have been
                     // instrumented...
+
+                    printf("LIB: %s,%lx,%lx\n", name, retval, retval + arg2);
+
                     if ((strcmp(name, "libc++.so.1") == 0 ||
                          strcmp(name, "libc++abi.so.1") == 0) &&
                         (strstr(mft->name, "libcxx_symcc") != NULL ||
                          strstr(mft->name, "libcxx_install") != NULL)) {
                         if (strcmp(name, "libc++.so.1") == 0) {
                             hybrid_start_lib_1 = retval;
+                            hybrid2_start_lib_1 = retval;
                             hybrid_end_lib_1   = retval + arg2;
+                            hybrid2_end_lib_1   = retval + arg2;
                         } else if (strcmp(name, "libc++abi.so.1") == 0) {
                             hybrid_start_lib_2 = retval;
                             hybrid_end_lib_2   = retval + arg2;
+                            hybrid2_start_lib_2 = retval;
+                            hybrid2_end_lib_2   = retval + arg2;
                         } else
                             tcg_abort();
                     } else {
@@ -2287,6 +2317,8 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
 
         if (args == NULL) // this was a check on the target
             return 0;
+
+        printf("indirect call target=%lx\n", target);
 
         arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
 

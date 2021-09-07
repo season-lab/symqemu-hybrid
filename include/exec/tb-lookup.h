@@ -17,6 +17,7 @@
 #include "exec/tb-hash.h"
 
 #include "accel/tcg/hybrid/hybrid.h"
+#include "accel/tcg/hybrid/hybrid_debug.h"
 
 /* Might cause an exception, so have a longjmp destination ready */
 static inline TranslationBlock *
@@ -55,9 +56,11 @@ tb_lookup__cpu_state(CPUState *cpu, target_ulong *pc, target_ulong *cs_base,
         }
 
         cpu_get_tb_cpu_state(env, pc, cs_base, flags);
+#if HYBRID_DBG_PRINT
         printf("[depth=%ld] Resuming emulation from %lx\n", task->depth, *pc);
         // printf("RSP: %lx\n", task->emulated_state->regs[R_ESP]);
         hybrid_stub(task);
+#endif
         if (last_tb)
             *last_tb = NULL;
     }
