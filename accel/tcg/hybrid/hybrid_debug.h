@@ -1,10 +1,14 @@
 #ifndef HYBRID_DEBUG_H
 #define HYBRID_DEBUG_H
 
+#define SOLVER_Z3                       1
+#define SOLVER_FUZZY                    2
+
+#define HYBRID_SOLVER                   SOLVER_Z3
 #define HYBRID_SKIP_LIB_QUERY           0
 #define HYBRID_DISABLE_Z3_SIMPLIFY      1
 #define HYBRID_DISABLE_RANGE_CONSTRAINT 1
-#define HYBRID_DBG_PRINT                1
+#define HYBRID_DBG_PRINT                0
 #define HYBRID_DBG_DUMP_QUERY           0
 #define HYBRID_DBG_CONSISTENCY_CHECK    0
 #define HYBRID_DBG_CONSISTENCY_ALT      0
