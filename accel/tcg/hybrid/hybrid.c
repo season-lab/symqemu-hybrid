@@ -1294,6 +1294,8 @@ void hybrid_init(void)
 int         memcmp_symbolized(const void* a, const void* b, size_t n);
 char*       strncpy_symbolized(char* dest, const char* src, size_t n);
 const char* strchr_symbolized(const char* s, int c);
+int         strncmp_symbolized(const char *s1, const char *s2, size_t n);
+int         bcmp_symbolized(const void *s1, const void *s2, size_t n);
 
 static uint64_t get_runtime_function_addr(char* name)
 {
@@ -1355,6 +1357,8 @@ static uint64_t get_runtime_function_addr(char* name)
     RUNTIME_FN_PTR(name, _sym_build_equal);
     RUNTIME_FN_PTR(name, _sym_memmove);
     RUNTIME_FN_PTR(name, memcmp_symbolized);
+    RUNTIME_FN_PTR(name, strncmp_symbolized);
+    RUNTIME_FN_PTR(name, bcmp_symbolized);
     RUNTIME_FN_PTR(name, _sym_build_fp_div);
     RUNTIME_FN_PTR(name, _sym_memset);
     RUNTIME_FN_PTR(name, _sym_build_signed_div);
@@ -2501,6 +2505,10 @@ void concretize_args(uint64_t target, CPUX86State* emulated_state, task_t* task)
 {
     if (!reached_start)
         return;
+
+#if HYBRID_DISABLED_LIBC_CONCRETIZATIONS
+    return;
+#endif
 
     int found = 0;
     for (int i = 0; i < sizeof(libc_concrete_funcs) / sizeof(uint64_t); i++) {
