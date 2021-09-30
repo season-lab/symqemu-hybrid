@@ -5087,9 +5087,9 @@ else
     feature_not_found "SymCC (runtime)" "Point --symcc-build to the SymCC build directory"
 fi
 
-if test -e "${symcc_build}/../../sym_helpers/libsymhelpers.so"; then
-    libs_cpu="-L${symcc_build}/../../sym_helpers/ -lsymhelpers $libs_cpu"
-    libs_cpu="-Wl,-rpath,${symcc_build}/../../sym_helpers/ $libs_cpu"
+if test -e "${symcc_source}/../sym_helpers/libsymhelpers.so"; then
+    libs_cpu="-L${symcc_source}/../sym_helpers/ -lsymhelpers $libs_cpu"
+    libs_cpu="-Wl,-rpath,${symcc_source}/../sym_helpers/ $libs_cpu"
 else
     feature_not_found "Symbolic TCG helpers" ""
 fi
