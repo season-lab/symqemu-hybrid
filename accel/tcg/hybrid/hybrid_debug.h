@@ -13,7 +13,7 @@
 #define HYBRID_DISABLE_RANGE_CONSTRAINT      1
 #define HYBRID_DBG_PRINT                     0
 #define HYBRID_DBG_PRINT_QUERY_ADDR          0
-#define HYBRID_DBG_DUMP_QUERY                1
+#define HYBRID_DBG_DUMP_QUERY                0
 #define HYBRID_DBG_CONSISTENCY_CHECK         0
 #define HYBRID_DBG_CONSISTENCY_ALT           0
 #define HYBRID_DBG_CHECK_PI_SAT              0
@@ -23,6 +23,6 @@
 #define HYBRID_HANDLE_VAR_ARGS               0
 #define HYBRID_USE_SYM_HELPERS               1
 #define HYBRID_USE_FSBASEINSN                1
-#define HYBRID_CACHE_CONSTANTS               0
+#define HYBRID_CACHE_CONSTANTS               1
 
 #endif // HYBRID_DEBUG_H
