@@ -32,7 +32,10 @@
 #include "trace-tcg.h"
 #include "exec/log.h"
 
+#include "../../accel/tcg/hybrid/hybrid_debug.h"
+#if HYBRID_USE_SYM_HELPERS
 #include "../../../sym_helpers/sym_helpers.h"
+#endif
 
 #define PREFIX_REPZ   0x01
 #define PREFIX_REPNZ  0x02
@@ -2737,7 +2740,11 @@ typedef void (*SSEFunc_0_eppt)(TCGv_ptr env, TCGv_ptr reg_a, TCGv_ptr reg_b,
 #define SSE_SPECIAL ((void *)1)
 #define SSE_DUMMY ((void *)2)
 
+#ifdef SYM_HELPERS
 #define MMX_OP2_S(x) { gen_helper_ ## x ## _mmx, gen_helper_ ## x ## _xmm_symbolized }
+#else
+#define MMX_OP2_S(x) { gen_helper_ ## x ## _mmx, gen_helper_ ## x ## _xmm }
+#endif
 #define MMX_OP2(x) { gen_helper_ ## x ## _mmx, gen_helper_ ## x ## _xmm }
 #define SSE_FOP(x) { gen_helper_ ## x ## ps, gen_helper_ ## x ## pd, \
                      gen_helper_ ## x ## ss, gen_helper_ ## x ## sd, }
@@ -2751,8 +2758,13 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x11] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movups, movupd, movss, movsd */
     [0x12] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movlps, movlpd, movsldup, movddup */
     [0x13] = { SSE_SPECIAL, SSE_SPECIAL },  /* movlps, movlpd */
+#ifdef SYM_HELPERS
     [0x14] = { gen_helper_punpckldq_xmm_symbolized, gen_helper_punpcklqdq_xmm_symbolized },
     [0x15] = { gen_helper_punpckhdq_xmm_symbolized, gen_helper_punpckhqdq_xmm_symbolized },
+#else
+    [0x14] = { gen_helper_punpckldq_xmm, gen_helper_punpcklqdq_xmm },
+    [0x15] = { gen_helper_punpckhdq_xmm, gen_helper_punpckhqdq_xmm },
+#endif
     [0x16] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },  /* movhps, movhpd, movshdup */
     [0x17] = { SSE_SPECIAL, SSE_SPECIAL },  /* movhps, movhpd */
 
@@ -2768,10 +2780,17 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x51] = SSE_FOP(sqrt),
     [0x52] = { gen_helper_rsqrtps, NULL, gen_helper_rsqrtss, NULL },
     [0x53] = { gen_helper_rcpps, NULL, gen_helper_rcpss, NULL },
+#ifdef SYM_HELPERS
     [0x54] = { gen_helper_pand_xmm_symbolized, gen_helper_pand_xmm_symbolized }, /* andps, andpd */
     [0x55] = { gen_helper_pandn_xmm_symbolized, gen_helper_pandn_xmm_symbolized }, /* andnps, andnpd */
     [0x56] = { gen_helper_por_xmm_symbolized, gen_helper_por_xmm_symbolized }, /* orps, orpd */
     [0x57] = { gen_helper_pxor_xmm_symbolized, gen_helper_pxor_xmm_symbolized }, /* xorps, xorpd */
+#else
+    [0x54] = { gen_helper_pand_xmm, gen_helper_pand_xmm }, /* andps, andpd */
+    [0x55] = { gen_helper_pandn_xmm, gen_helper_pandn_xmm }, /* andnps, andnpd */
+    [0x56] = { gen_helper_por_xmm, gen_helper_por_xmm }, /* orps, orpd */
+    [0x57] = { gen_helper_pxor_xmm, gen_helper_pxor_xmm }, /* xorps, xorpd */
+#endif
     [0x58] = SSE_FOP(add),
     [0x59] = SSE_FOP(mul),
     [0x5a] = { gen_helper_cvtps2pd, gen_helper_cvtpd2ps,
@@ -2803,14 +2822,26 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x69] = MMX_OP2_S(punpckhwd),
     [0x6a] = MMX_OP2_S(punpckhdq),
     [0x6b] = MMX_OP2_S(packssdw),
+#ifdef SYM_HELPERS
     [0x6c] = { NULL, gen_helper_punpcklqdq_xmm_symbolized },
     [0x6d] = { NULL, gen_helper_punpckhqdq_xmm_symbolized },
+#else
+    [0x6c] = { NULL, gen_helper_punpcklqdq_xmm },
+    [0x6d] = { NULL, gen_helper_punpckhqdq_xmm },
+#endif
     [0x6e] = { SSE_SPECIAL, SSE_SPECIAL }, /* movd mm, ea */
     [0x6f] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movq, movdqa, , movqdu */
+#ifdef SYM_HELPERS
     [0x70] = { (SSEFunc_0_epp)gen_helper_pshufw_mmx,
                (SSEFunc_0_epp)gen_helper_pshufd_xmm_symbolized,
                (SSEFunc_0_epp)gen_helper_pshufhw_xmm_symbolized,
                (SSEFunc_0_epp)gen_helper_pshuflw_xmm_symbolized }, /* XXX: casts */
+#else
+    [0x70] = { (SSEFunc_0_epp)gen_helper_pshufw_mmx,
+               (SSEFunc_0_epp)gen_helper_pshufd_xmm,
+               (SSEFunc_0_epp)gen_helper_pshufhw_xmm,
+               (SSEFunc_0_epp)gen_helper_pshuflw_xmm }, /* XXX: casts */
+#endif
     [0x71] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftw */
     [0x72] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftd */
     [0x73] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftq */
@@ -2884,9 +2915,17 @@ static const SSEFunc_0_epp sse_op_table2[3 * 8][2] = {
     [8 + 4] = MMX_OP2_S(psrad),
     [8 + 6] = MMX_OP2_S(pslld),
     [16 + 2] = MMX_OP2_S(psrlq),
+#ifdef SYM_HELPERS
     [16 + 3] = { NULL, gen_helper_psrldq_xmm_symbolized },
+#else
+    [16 + 3] = { NULL, gen_helper_psrldq_xmm },
+#endif
     [16 + 6] = MMX_OP2_S(psllq),
+#ifdef SYM_HELPERS
     [16 + 7] = { NULL, gen_helper_pslldq_xmm_symbolized },
+#else
+    [16 + 3] = { NULL, gen_helper_psrldq_xmm },
+#endif
 };
 
 static const SSEFunc_0_epi sse_op_table3ai[] = {
@@ -2967,7 +3006,11 @@ struct SSEOpHelper_eppi {
 
 #define SSSE3_OP_S(x) { MMX_OP2_S(x), CPUID_EXT_SSSE3 }
 #define SSSE3_OP(x) { MMX_OP2(x), CPUID_EXT_SSSE3 }
+#ifdef SYM_HELPERS
 #define SSE41_OP_S(x) { { NULL, gen_helper_ ## x ## _xmm_symbolized }, CPUID_EXT_SSE41 }
+#else
+#define SSE41_OP_S(x) { { NULL, gen_helper_ ## x ## _xmm }, CPUID_EXT_SSE41 }
+#endif
 #define SSE41_OP(x) { { NULL, gen_helper_ ## x ## _xmm }, CPUID_EXT_SSE41 }
 #define SSE42_OP(x) { { NULL, gen_helper_ ## x ## _xmm }, CPUID_EXT_SSE42 }
 #define SSE41_SPECIAL { { NULL, SSE_SPECIAL }, CPUID_EXT_SSE41 }

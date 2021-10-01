@@ -65,7 +65,10 @@
 #include "tcg-runtime-sym.h"
 
 /* HYBRID */
+#include "../../accel/tcg/hybrid/hybrid_debug.h"
+#if HYBRID_USE_SYM_HELPERS
 #include "../../../sym_helpers/gen_sym_helpers.h"
+#endif
 /* HYBRID */
 
 #undef str

@@ -17,10 +17,15 @@
 "movabsq $0xFFFFFFFFFFFFFFF8, %rcx" "\n\t"
 "andq %rcx, %rax" "\n\t"
 "leaq 8(%rax), %rax" "\n\t"                  // skip seg
+#if HYBRID_USE_FSBASEINSN
+"movq (%rax), %rsi" "\n\t"
+"wrfsbase %rsi" "\n\t"
+#else
 "movq $" xstr(ARCH_SET_FS) ", %rdi" "\n\t"
 "movq (%rax), %rsi" "\n\t"
 "movq $158, %rax" "\n\t"           // arch_prctl
 "syscall" "\n\t"
+#endif
 "popq %rax" "\n\t"
 //
 // we skip rax, rcx, rsp

@@ -176,7 +176,18 @@ typedef struct {
 open_file_t open_files[MAX_MMAP_FILES] = {0};
 GSList*     mmaped_files               = NULL;
 
+#if HYBRID_USE_FSBASEINSN
+static inline int arch_prctl(int code, unsigned long base){
+    if (code == ARCH_GET_FS) {
+        *((unsigned long *)base) = _readfsbase_u64();
+    } else {
+        _writefsbase_u64(*((unsigned long *)base));
+    }
+    return 0;
+}
+#else
 int arch_prctl(int code, unsigned long addr);
+#endif
 
 static int parse_config_file(char* file)
 {
@@ -367,9 +378,16 @@ static int parse_config_file(char* file)
     return 0;
 }
 
+int cached_pid = -1;
 task_t* get_task(void)
 {
-    pid_t   tid  = syscall(__NR_gettid);
+    pid_t   tid;
+    if (cached_pid < 0) {
+        tid  = syscall(__NR_gettid);
+        cached_pid = tid;
+    }
+        
+    tid = cached_pid;
     task_t* task = NULL;
 
     // FIXME: we should protect this with a lock
@@ -396,7 +414,6 @@ void save_native_context_clobber_syscall(uint64_t rsp, uint64_t* save_area)
 
     uint64_t fs_base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&fs_base);
-
     arch_prctl(ARCH_SET_FS, task->qemu_context->fs_base);
 
 #if 0
@@ -563,10 +580,12 @@ void save_native_context_clobber_syscall(uint64_t rsp, uint64_t* save_area)
             break;
     }
 
+#if 0
     struct sigaction action;
     action.sa_sigaction = &hybrid_syscall_handler;
     action.sa_flags     = SA_SIGINFO | SA_RESTART;
     sigaction(SIGILL, &action, &task->qemu_context->sigill_handler);
+#endif
 
     // restore fsbase to avoid canary check failure...
     arch_prctl(ARCH_SET_FS, fs_base);
@@ -699,12 +718,13 @@ void hybrid_new_thread(uint64_t tid, CPUX86State* state)
 
 void hybrid_set_sigill_handler(void)
 {
+#if 0
     task_t*          task = get_task();
     struct sigaction action;
     action.sa_sigaction = &hybrid_syscall_handler;
     action.sa_flags     = SA_SIGINFO | SA_RESTART;
     sigaction(SIGILL, &action, &task->qemu_context->sigill_handler);
-
+#endif
     uint64_t fs_base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&fs_base);
     // printf("CHILD QEMU FSBASE: %lx\n", fs_base);
@@ -1418,6 +1438,7 @@ static uint64_t runtime_function_handler(runtime_stub_args_t* args)
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
     // printf("FN %lx: arg1=%lx, arg2=%lx, arg3=%lx\n", args->addr, args->arg1,
     // args->arg2, args->arg3);
+
     if (args->addr == 0)
         tcg_abort();
     uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) =
@@ -1426,6 +1447,7 @@ static uint64_t runtime_function_handler(runtime_stub_args_t* args)
 
     uint64_t res = f(args->arg1, args->arg2, args->arg3, args->arg4, args->arg5,
                      args->arg6);
+    
     arch_prctl(ARCH_SET_FS, base);
     return res;
 }
@@ -1870,12 +1892,12 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         task->qemu_context->valid = 0;
         save_emulated_context(task->emulated_state,
                               mode == RETURN_FROM_EMULATION);
-
+#if 0
         struct sigaction action;
         action.sa_sigaction = &hybrid_syscall_handler;
         action.sa_flags     = SA_SIGINFO | SA_RESTART;
         sigaction(SIGILL, &action, &task->qemu_context->sigill_handler);
-
+#endif
         // printf("\n[%lx] Resuming native to 0x%lx [0x%lx] [0x%lx]\n",
         // task->tid, target, original_target,
         // (uint64_t)&return_handler_from_emulation); printf("\n[%lx] Resuming

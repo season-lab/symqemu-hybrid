@@ -66,8 +66,11 @@
 #include "exec/log.h"
 #include "sysemu/sysemu.h"
 
+#include "../accel/tcg/hybrid/hybrid_debug.h"
+#if HYBRID_USE_SYM_HELPERS
 #include "../../sym_helpers/sym_helpers.h"
 #include "../../sym_helpers/sym_check_helpers.h"
+#endif
 
 /* Forward declarations for functions declared in tcg-target.inc.c and
    used here. */
