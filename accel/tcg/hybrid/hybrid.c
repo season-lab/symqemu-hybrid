@@ -1079,7 +1079,6 @@ void return_handler_from_emulation(void)
 
 void switch_to_emulated(int plt_entry)
 {
-    // printf("Switching to emulated\n...");
 
     task_t* task = get_task();
     restore_emulated_context(task->native_context, task->emulated_state);
@@ -1100,6 +1099,8 @@ void switch_to_emulated(int plt_entry)
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
+
+    printf("Switching to emulated\n...");
 
     if (libc_setjmp_addr[0] == task->emulated_state->eip ||
         libc_setjmp_addr[1] == task->emulated_state->eip) {

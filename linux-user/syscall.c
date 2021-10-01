@@ -7148,11 +7148,16 @@ static int do_openat(void *cpu_env, int dirfd, const char *pathname, int flags, 
     const char* r1_fake = "/home/symbolic/qemu-hybrid-test/symcc-hybrid/build/SymFakeRuntime-prefix/src/SymFakeRuntime-build/libSymRuntime.so";
     const char* r2 = "/symfusion/symcc-hybrid/build/SymRuntime-prefix/src/SymRuntime-build/libSymRuntime.so";
     const char* r2_fake = "/symfusion/symcc-hybrid/build/SymFakeRuntime-prefix/src/SymFakeRuntime-build/libSymRuntime.so";
+    const char* r3 = "/home/symfusion/bin/symcc-hybrid/SymRuntime-prefix/src/SymRuntime-build/libSymRuntime.so";
+    const char* r3_fake = "/home/symfusion/bin/symcc-hybrid/SymFakeRuntime-prefix/src/SymFakeRuntime-build/libSymRuntime.so";
     if (strcmp(fpath, r1) == 0) {
         fpath = r1_fake;
         printf("fixing open path: %s\n", fpath);
     } else if (strcmp(fpath, r2) == 0) {
         fpath = r2_fake;
+        printf("fixing open path: %s\n", fpath);
+    } else if (strcmp(fpath, r3) == 0) {
+        fpath = r3_fake;
         printf("fixing open path: %s\n", fpath);
     }
 #endif
