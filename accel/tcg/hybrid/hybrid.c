@@ -107,9 +107,9 @@ typedef struct CpuContext_t {
     struct sigaction sigill_handler;
 } CpuContext;
 
-abi_ulong hybrid_entry_point, hybrid_start_code, hybrid_end_code;
-abi_ulong hybrid_start_lib_1, hybrid_end_lib_1;
-abi_ulong hybrid_start_lib_2, hybrid_end_lib_2;
+abi_ulong       hybrid_entry_point, hybrid_start_code, hybrid_end_code;
+abi_ulong       hybrid_start_lib_1, hybrid_end_lib_1;
+abi_ulong       hybrid_start_lib_2, hybrid_end_lib_2;
 extern uint64_t hybrid2_start_lib_1, hybrid2_end_lib_1;
 extern uint64_t hybrid2_start_lib_2, hybrid2_end_lib_2;
 
@@ -126,6 +126,7 @@ static GSList* runtime_patches          = NULL;
 static GSList* plt_aliases              = NULL;
 static char*   libc_path                = NULL;
 uint64_t       libc_concrete_funcs[256] = {0};
+uint64_t       libc_models[256]         = {0};
 
 uint64_t libc_setjmp_addr[2]  = {0};
 uint64_t libc_longjmp_addr[2] = {0};
@@ -177,11 +178,12 @@ open_file_t open_files[MAX_MMAP_FILES] = {0};
 GSList*     mmaped_files               = NULL;
 
 #if HYBRID_USE_FSBASEINSN
-static inline int arch_prctl(int code, unsigned long base){
+static inline int arch_prctl(int code, unsigned long base)
+{
     if (code == ARCH_GET_FS) {
-        *((unsigned long *)base) = _readfsbase_u64();
+        *((unsigned long*)base) = _readfsbase_u64();
     } else {
-        _writefsbase_u64(*((unsigned long *)base));
+        _writefsbase_u64(*((unsigned long*)base));
     }
     return 0;
 }
@@ -250,6 +252,22 @@ static int parse_config_file(char* file)
         uint64_t offset      = (uint64_t)strtoull(res, NULL, 16);
         libc_longjmp_addr[1] = offset;
     }
+
+    {
+        char** keys = g_key_file_get_keys(gkf, "libc_models", NULL, NULL);
+        int    j    = 0;
+        while (*keys != NULL) {
+            char* res = g_key_file_get_value(gkf, "libc_models", *keys, NULL);
+            if (strcmp("path", *keys) != 0) {
+                printf("LIBC MODEL %s at 0x%s\n", *keys, res);
+                uint64_t offset = (uint64_t)strtoull(res, NULL, 16);
+                assert(j < sizeof(libc_models) / sizeof(uint64_t));
+                libc_models[j++] = offset;
+            }
+            keys++;
+        }
+    }
+
 #endif
     char** groups          = g_key_file_get_groups(gkf, NULL);
     char** groups_original = groups;
@@ -378,16 +396,16 @@ static int parse_config_file(char* file)
     return 0;
 }
 
-int cached_pid = -1;
+int     cached_pid = -1;
 task_t* get_task(void)
 {
-    pid_t   tid;
+    pid_t tid;
     if (cached_pid < 0) {
-        tid  = syscall(__NR_gettid);
+        tid        = syscall(__NR_gettid);
         cached_pid = tid;
     }
-        
-    tid = cached_pid;
+
+    tid          = cached_pid;
     task_t* task = NULL;
 
     // FIXME: we should protect this with a lock
@@ -1099,7 +1117,6 @@ void return_handler_from_emulation(void)
 
 void switch_to_emulated(int plt_entry)
 {
-
     task_t* task = get_task();
     restore_emulated_context(task->native_context, task->emulated_state);
 
@@ -1112,7 +1129,7 @@ void switch_to_emulated(int plt_entry)
     task->return_addrs[task->depth - 1] = *(ret_addr);
 
     *(ret_addr) = RETURN_FROM_EMULATION_SENTINEL;
-    _sym_write_memory((uint8_t*)ret_addr, sizeof(void *), NULL, 1);
+    _sym_write_memory((uint8_t*)ret_addr, sizeof(void*), NULL, 1);
     assert(plt_entry >= 0 && plt_entry < plt_stubs_count);
     task->emulated_state->eip = shadow_plt[plt_entry];
 
@@ -1120,7 +1137,7 @@ void switch_to_emulated(int plt_entry)
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
 
-    printf("Switching to emulated\n...");
+    printf("Switching to emulated to 0x%lx...\n", task->emulated_state->eip);
 
     if (libc_setjmp_addr[0] == task->emulated_state->eip ||
         libc_setjmp_addr[1] == task->emulated_state->eip) {
@@ -1207,7 +1224,10 @@ void switch_back_emulation(void)
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
     printf("[depth=%ld] JUMPING BACK TO %lx rsp=%lx\n", task->depth,
            task->emulated_state->eip, task->emulated_state->regs[SLOT_RSP]);
-    _sym_notify_ret(task->emulated_state->eip);
+
+    // FIXME: is this needed?
+    // _sym_notify_ret(task->emulated_state->eip);
+
     arch_prctl(ARCH_SET_FS, base);
 
     restore_qemu_context(task->qemu_context);
@@ -1231,8 +1251,8 @@ void switch_emulation_indirect_call(void)
     task->depth += 1;
     assert(task->depth >= 0 && task->depth <= MAX_DEPTH);
     task->return_addrs[task->depth - 1] = *(ret_addr);
-    *(ret_addr) = RETURN_FROM_EMULATION_SENTINEL;
-    _sym_write_memory((uint8_t*)ret_addr, sizeof(void *), NULL, 1);
+    *(ret_addr)                         = RETURN_FROM_EMULATION_SENTINEL;
+    _sym_write_memory((uint8_t*)ret_addr, sizeof(void*), NULL, 1);
 
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
@@ -1315,8 +1335,8 @@ void hybrid_init(void)
 int         memcmp_symbolized(const void* a, const void* b, size_t n);
 char*       strncpy_symbolized(char* dest, const char* src, size_t n);
 const char* strchr_symbolized(const char* s, int c);
-int         strncmp_symbolized(const char *s1, const char *s2, size_t n);
-int         bcmp_symbolized(const void *s1, const void *s2, size_t n);
+int         strncmp_symbolized(const char* s1, const char* s2, size_t n);
+int         bcmp_symbolized(const void* s1, const void* s2, size_t n);
 
 static uint64_t get_runtime_function_addr(char* name)
 {
@@ -1448,7 +1468,7 @@ static uint64_t runtime_function_handler(runtime_stub_args_t* args)
 
     uint64_t res = f(args->arg1, args->arg2, args->arg3, args->arg4, args->arg5,
                      args->arg6);
-    
+
     arch_prctl(ARCH_SET_FS, base);
     return res;
 }
@@ -1508,8 +1528,8 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
     task->emulated_state = state;
 
-    // fprintf(stderr, "LIB: START=%lx END=%lx INDIRECT=%lx\n", hybrid_start_code, hybrid_end_code, check_indirect_target);
-    // tcg_abort();
+    // fprintf(stderr, "LIB: START=%lx END=%lx INDIRECT=%lx\n",
+    // hybrid_start_code, hybrid_end_code, check_indirect_target); tcg_abort();
 
     concretize_args(target, state, task);
 
@@ -1541,6 +1561,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         *(ret_addr) = (uint64_t)save_native_context_safe_back_to_emulation;
     }
 
+    _sym_set_emulation_mode(0);
     printf("Switching to native: 0x%lx...\n", target);
 
     // patch PLTs && syscall insns
@@ -1854,6 +1875,15 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
             printf("LIBC FN TO CONCRETIZE at %lx [%lx]\n",
                    libc_concrete_funcs[i], libc_base_address);
         }
+
+        for (int i = 0;
+             libc_models[i] > 0 && i < sizeof(libc_models) / sizeof(uint64_t);
+             i++) {
+            libc_models[i] += libc_base_address;
+            printf("LIBC MODEL at %lx [%lx]\n", libc_models[i],
+                   libc_base_address);
+        }
+
         libc_setjmp_addr[0] += libc_base_address;
         libc_setjmp_addr[1] += libc_base_address;
         printf("SIGSETJMP at %lx [%lx]\n", libc_setjmp_addr[0],
@@ -1994,7 +2024,11 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         printf("\n[depth=%ld] Resuming native to 0x%lx [0x%lx]\n", task->depth,
                target, task->emulated_context->pc);
 
+        _sym_set_emulation_mode(0);
+        _sym_set_concrete_mode(0);
+
         restore_native_context(task->emulated_context, target);
+
     } else {
 #if 0
         arch_prctl(ARCH_GET_FS, &base);
@@ -2014,6 +2048,25 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
         // FIXME: what to do when returning from native back into emulation?
 
+#if HYBRID_LIB_CONCRETE_MODE_
+        int enable_concrete_mode = 1;
+        for(int i = 0; libc_models[i] != 0; i++) {
+            if (libc_models[i] == task->emulated_state->eip) {
+                enable_concrete_mode = 0;
+                break;
+            }
+        }
+
+        if (enable_concrete_mode) {
+            _sym_set_concrete_mode(1);
+            printf("ENABLING CONCRETIZATION MODE AT %lx\n", task->emulated_state->eip);
+        } else {
+            _sym_set_concrete_mode(0);
+            printf("DISABLING CONCRETIZATION MODE AT %lx\n", task->emulated_state->eip);
+        }
+#else
+        int enable_concrete_mode = 0;
+#endif
         const char* arg_regs[] = {
             "rdi_expr",
             "rsi_expr",
@@ -2041,7 +2094,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 #endif
         int int_arg_count = 0;
         for (int i = 0; i < args_count; i++) {
-            void*   expr   = _sym_get_parameter_expression(i);
+            void*   expr   = enable_concrete_mode ? NULL : _sym_get_parameter_expression(i);
             uint8_t is_int = _sym_is_int_parameter(i);
             // printf("Argument %d is int: %d\n", i, is_int);
 
@@ -2066,21 +2119,21 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                             if (current_bits < 64) {
                                 expr = _sym_build_zext(expr, 64 - current_bits);
                             }
-                            printf("%s: %s\n", arg_regs[int_arg_count], _sym_expr_to_string(expr));
+                            printf("%s: %s\n", arg_regs[int_arg_count],
+                                   _sym_expr_to_string(expr));
                         }
                         *arg_expr = expr;
 
 #if HYBRID_DBG_CONSISTENCY_CHECK
-                        const int arg_regs_id[] = {
-                            SLOT_RDI,
-                            SLOT_RSI,
-                            SLOT_RDX,
-                            SLOT_RCX,
-                            SLOT_R8,
-                            SLOT_R9
-                        };
-                        // fprintf(stderr, "Checking arg reg %s consistency\n", arg_regs[int_arg_count]);
-                        _sym_check_consistency(expr, task->emulated_state->regs[arg_regs_id[int_arg_count]], task->emulated_state->eip);
+                        const int arg_regs_id[] = {SLOT_RDI, SLOT_RSI, SLOT_RDX,
+                                                   SLOT_RCX, SLOT_R8,  SLOT_R9};
+                        // fprintf(stderr, "Checking arg reg %s consistency\n",
+                        // arg_regs[int_arg_count]);
+                        _sym_check_consistency(
+                            expr,
+                            task->emulated_state
+                                ->regs[arg_regs_id[int_arg_count]],
+                            task->emulated_state->eip);
 #endif
                     }
                 } else {
@@ -2109,14 +2162,19 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         }
 
         // RAX is used in variadic functions for # of FP args
-        TCGTemp* arg = tcg_find_temp_arch_reg("rax_expr");
-        uint64_t **arg_expr = (uint64_t **)((uint64_t)arg->mem_offset + (uint64_t)task->emulated_state);
-        *arg_expr = NULL;
+        TCGTemp*   arg      = tcg_find_temp_arch_reg("rax_expr");
+        uint64_t** arg_expr = (uint64_t**)((uint64_t)arg->mem_offset +
+                                           (uint64_t)task->emulated_state);
+        *arg_expr           = NULL;
 
         // we reset symbolically the XMM regs...
         for (int i = 0; i < 8; i++) {
-            _sym_write_memory((uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[0], 8, NULL, 1);
-            _sym_write_memory((uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[1], 8, NULL, 1);
+            _sym_write_memory(
+                (uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[0], 8,
+                NULL, 1);
+            _sym_write_memory(
+                (uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[1], 8,
+                NULL, 1);
         }
 #if 0
         for (int i = int_arg_count; i < sizeof(arg_regs) / sizeof(char *); i++)
@@ -2129,6 +2187,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
             *arg_expr = NULL;
         }
 #endif
+        _sym_set_emulation_mode(1);
     }
 }
 
@@ -2152,7 +2211,7 @@ void hybrid_stub(task_t* task)
     return;
 }
 
-#define DEBUG_SYSCALLS 1
+#define DEBUG_SYSCALLS      1
 #define DEBUG_SYSCALLS_TIME 0
 void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                     uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6,
@@ -2244,14 +2303,10 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                          strstr(mft->name, "libcxx_install") != NULL)) {
                         if (strcmp(name, "libc++.so.1") == 0) {
                             hybrid_start_lib_1 = retval;
-                            hybrid2_start_lib_1 = retval;
                             hybrid_end_lib_1   = retval + arg2;
-                            hybrid2_end_lib_1   = retval + arg2;
                         } else if (strcmp(name, "libc++abi.so.1") == 0) {
                             hybrid_start_lib_2 = retval;
                             hybrid_end_lib_2   = retval + arg2;
-                            hybrid2_start_lib_2 = retval;
-                            hybrid2_end_lib_2   = retval + arg2;
                         } else
                             tcg_abort();
                     } else {
