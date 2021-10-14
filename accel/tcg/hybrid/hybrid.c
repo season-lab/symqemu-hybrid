@@ -2048,7 +2048,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
         // FIXME: what to do when returning from native back into emulation?
 
-#if HYBRID_LIB_CONCRETE_MODE_
+#if HYBRID_LIB_CONCRETE_MODE
         int enable_concrete_mode = 1;
         for(int i = 0; libc_models[i] != 0; i++) {
             if (libc_models[i] == task->emulated_state->eip) {
