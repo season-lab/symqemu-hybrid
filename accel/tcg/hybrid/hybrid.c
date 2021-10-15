@@ -1975,8 +1975,8 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                 }
                 // const char *s_expr = _sym_expr_to_string(*ret_val_expr);
                 // printf("RETURN EXP: len=%ld %s\n", current_bits, s_expr);
-                _sym_set_return_expression(*ret_val_expr);
             }
+            _sym_set_return_expression(*ret_val_expr);
 
             // concrete floating return value
 
