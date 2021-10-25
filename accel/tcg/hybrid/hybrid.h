@@ -57,6 +57,7 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
 void hybrid_new_thread(uint64_t tid, CPUX86State* state);
 void hybrid_set_sigill_handler(void);
 int  hybrid_is_task_native(void);
+void hybrid_debug(void);
 
 extern uint64_t libc_concrete_funcs[256];
 

@@ -1181,7 +1181,7 @@ void switch_to_emulated(int plt_entry)
         }
         assert(index >= 0);
         // FIXME: we should track RSP values...
-        printf("ADJUSTING DEPTH FRO %ld to %ld for callsite %lx\n", task->depth,
+        printf("ADJUSTING DEPTH FROM %ld to %ld for callsite %lx\n", task->depth,
                task->longjmp_depth[index], task->longjmp_callsite[index]);
         task->depth                         = task->longjmp_depth[index];
         task->return_addrs[task->depth - 1] = task->longjmp[index];
@@ -1257,11 +1257,16 @@ void switch_emulation_indirect_call(void)
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
-    printf("[depth=%ld] EMULATED INDIRECT CALL %lx rsp=%lx rdi=%lx\n",
+    printf("[depth=%ld] EMULATED INDIRECT CALL %lx rsp=%lx rdi=%lx *rsp=%lx\n",
            task->depth, task->emulated_state->eip,
            task->emulated_state->regs[SLOT_RSP],
-           task->emulated_state->regs[SLOT_RDI]);
+           task->emulated_state->regs[SLOT_RDI],
+           task->return_addrs[task->depth - 1]);
     _sym_notify_call(RETURN_FROM_EMULATION_SENTINEL);
+#if 0
+    for(int i = 0; i < SLOT_GPR_END; i++)
+        printf("R[%d] = %lx\n", i, task->emulated_state->regs[i]);
+#endif
     arch_prctl(ARCH_SET_FS, base);
 
     restore_qemu_context(task->qemu_context);
@@ -2568,12 +2573,19 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
         task->depth += 1;
         task->return_addrs[task->depth - 1] = target;
         assert(args_count <= 6);
+
+        arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
+
         save_native_context_indirect_call(
             args_count >= 1 ? args[0] : 0, args_count >= 2 ? args[1] : 0,
             args_count >= 3 ? args[2] : 0, args_count >= 4 ? args[3] : 0,
             args_count >= 5 ? args[4] : 0, args_count >= 6 ? args[5] : 0);
+
+        arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
         printf("RETURNED FROM EMULATION OF INDIRECT CALL: res=%lx\n",
                task->emulated_state->regs[SLOT_RAX]);
+        arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
+
         return task->emulated_state->regs[SLOT_RAX];
     }
     tcg_abort();
@@ -2638,4 +2650,11 @@ void concretize_args(uint64_t target, CPUX86State* emulated_state, task_t* task)
     task->concretized_rsp_point = point;
     printf("\nENABLING CONCRETIZATION at %lx\n", task->concretized_rsp_point);
     _sym_set_concrete_mode(1);
+}
+
+void hybrid_debug() {
+    task_t* task = get_task();
+    if (task->emulated_state == NULL) return;
+    for(int i = 0; i < SLOT_GPR_END; i++)
+        printf("R[%d] = %lx\n", i, task->emulated_state->regs[i]);
 }
