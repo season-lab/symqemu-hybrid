@@ -313,11 +313,13 @@ static void *sym_load_guest_internal(CPUArchState *env,
                                      uint64_t load_length, uint8_t result_length,
                                      target_ulong mmu_idx)
 {
+#if 1
     /* Try an alternative address */
     if (addr_expr != NULL && !_sym_is_concrete_mode_enabled()) {
 #if HYBRID_DBG_CONSISTENCY_CHECK
         _sym_check_consistency(addr_expr, addr, get_pc(env));
 #endif
+#if !HYBRID_SYMBOLIC_MEMORY
         void* condition = _sym_build_equal(
                 addr_expr, _sym_build_integer(addr, sizeof(addr) * 8));
 #if 0
@@ -327,9 +329,12 @@ static void *sym_load_guest_internal(CPUArchState *env,
         _sym_push_path_constraint(
             condition,
             true, get_pc(env));
+        
+#endif
     }
+#endif
     void *host_addr = tlb_vaddr_to_host(env, addr, MMU_DATA_LOAD, mmu_idx);
-    void *memory_expr = _sym_read_memory((uint8_t*)host_addr, load_length, true);
+    void *memory_expr = _sym_read_memory(addr_expr, (uint8_t*)host_addr, load_length, true);
 
     if (load_length == result_length || memory_expr == NULL)
         return memory_expr;
@@ -361,6 +366,7 @@ static void sym_store_guest_internal(CPUArchState *env,
 #if HYBRID_DBG_CONSISTENCY_CHECK
         _sym_check_consistency(addr_expr, addr, get_pc(env));
 #endif
+#if !HYBRID_SYMBOLIC_MEMORY
         void* condition = _sym_build_equal(
                 addr_expr, _sym_build_integer(addr, sizeof(addr) * 8));
 #if 0
@@ -370,35 +376,10 @@ static void sym_store_guest_internal(CPUArchState *env,
         _sym_push_path_constraint(
             condition,
             true, get_pc(env));
+#endif
     }
     void *host_addr = tlb_vaddr_to_host(env, addr, MMU_DATA_STORE, mmu_idx);
-    _sym_write_memory((uint8_t*)host_addr, length, value_expr, true);
-
-#if HYBRID_DBG_CONSISTENCY_CHECK
-    if (length <= 8) {
-        uint64_t expected_value;
-        switch(length) {
-        case 1:
-            expected_value = *((uint8_t*)addr);
-            break;
-        case 2:
-            expected_value = *((uint16_t*)addr);
-            break;
-        case 4:
-            expected_value = *((uint32_t*)addr);
-            break;
-        case 8:
-            expected_value = *((uint64_t*)addr);
-            break;
-        default:
-            printf("READ SIZE: %ld\n", length);
-            assert(0 && "Unexpected read size");
-        }
-        if (value_expr)
-            printf("Check write consistency\n");
-        _sym_check_consistency(value_expr, expected_value, (uint64_t) host_addr);
-    }
-#endif
+    _sym_write_memory(addr_expr, (uint8_t*)host_addr, length, value_expr, true, value);
 }
 
 void HELPER(sym_store_guest_i32)(CPUArchState *env,
@@ -423,7 +404,7 @@ static void *sym_load_host_internal(void *addr, uint64_t offset,
                                     uint64_t load_length, uint64_t result_length)
 {
     void *memory_expr = _sym_read_memory(
-        (uint8_t*)addr + offset, load_length, true);
+        NULL, (uint8_t*)addr + offset, load_length, true);
 
     if (load_length == result_length || memory_expr == NULL)
         return memory_expr;
@@ -445,14 +426,14 @@ void HELPER(sym_store_host_i32)(uint32_t value, void *value_expr,
                                 void *addr,
                                 uint64_t offset, uint64_t length)
 {
-    _sym_write_memory((uint8_t*)addr + offset, length, value_expr, true);
+    _sym_write_memory(NULL, (uint8_t*)addr + offset, length, value_expr, true, value);
 }
 
 void HELPER(sym_store_host_i64)(uint64_t value, void *value_expr,
                                 void *addr,
                                 uint64_t offset, uint64_t length)
 {
-    _sym_write_memory((uint8_t*)addr + offset, length, value_expr, true);
+    _sym_write_memory(NULL, (uint8_t*)addr + offset, length, value_expr, true, value);
 }
 
 DECL_HELPER_BINARY(rotate_left)

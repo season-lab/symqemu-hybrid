@@ -3222,10 +3222,12 @@ void tcg_gen_qemu_ld_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
         }
     }
 
-    gen_ldst_i32(INDEX_op_qemu_ld_i32, val, addr, memop, idx);
-
+    // NOTE: we have to do the symbolic write before the concrete write
+    //       because the runtime may need to inspect the memory state
+#if 0
     /* Perform the symbolic memory access. Doing so _after_ the concrete
      * operation ensures that the target address is in the TLB. */
+#endif
     load_size = tcg_const_i64(1 << (memop & MO_SIZE));
     mmu_idx = tcg_const_i64(idx);
     gen_helper_sym_load_guest_i32(tcgv_i32_expr(val), cpu_env,
@@ -3233,6 +3235,8 @@ void tcg_gen_qemu_ld_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
                                   load_size, mmu_idx);
     tcg_temp_free_i64(load_size);
     tcg_temp_free_i64(mmu_idx);
+
+    gen_ldst_i32(INDEX_op_qemu_ld_i32, val, addr, memop, idx);
 
     if ((orig_memop ^ memop) & MO_BSWAP) {
         switch (orig_memop & MO_SIZE) {
@@ -3278,10 +3282,12 @@ void tcg_gen_qemu_st_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
         memop &= ~MO_BSWAP;
     }
 
-    gen_ldst_i32(INDEX_op_qemu_st_i32, val, addr, memop, idx);
-
+    // NOTE: we have to do the symbolic write before the concrete write
+    //       because the runtime may need to inspect the memory state
+#if 0
     /* Perform the symbolic memory access. Doing so _after_ the concrete
      * operation ensures that the target address is in the TLB. */
+#endif
     store_size = tcg_const_i64(1 << (memop & MO_SIZE));
     mmu_idx = tcg_const_i64(idx);
     gen_helper_sym_store_guest_i32(cpu_env,
@@ -3290,6 +3296,12 @@ void tcg_gen_qemu_st_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
                                    store_size, mmu_idx);
     tcg_temp_free_i64(store_size);
     tcg_temp_free_i64(mmu_idx);
+
+    gen_ldst_i32(INDEX_op_qemu_st_i32, val, addr, memop, idx);
+
+#if HYBRID_DBG_CONSISTENCY_CHECK
+    gen_helper_sym_check_consistency((TCGv_ptr) tcgv_i32_expr(val), (TCGv_i64) val, addr);
+#endif
 
     if (swap) {
         tcg_temp_free_i32(swap);
@@ -3325,10 +3337,12 @@ void tcg_gen_qemu_ld_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
         }
     }
 
-    gen_ldst_i64(INDEX_op_qemu_ld_i64, val, addr, memop, idx);
-
+    // NOTE: we have to do the symbolic write before the concrete write
+    //       because the runtime may need to inspect the memory state
+#if 0
     /* Perform the symbolic memory access. Doing so _after_ the concrete
      * operation ensures that the target address is in the TLB. */
+#endif
     mmu_idx = tcg_const_i64(idx);
     load_size = tcg_const_i64(1 << (memop & MO_SIZE));
     gen_helper_sym_load_guest_i64(tcgv_i64_expr(val), cpu_env,
@@ -3336,6 +3350,8 @@ void tcg_gen_qemu_ld_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
                                   load_size, mmu_idx);
     tcg_temp_free_i64(load_size);
     tcg_temp_free_i64(mmu_idx);
+
+    gen_ldst_i64(INDEX_op_qemu_ld_i64, val, addr, memop, idx);
 
     if ((orig_memop ^ memop) & MO_BSWAP) {
         switch (orig_memop & MO_SIZE) {
@@ -3395,10 +3411,12 @@ void tcg_gen_qemu_st_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
         memop &= ~MO_BSWAP;
     }
 
-    gen_ldst_i64(INDEX_op_qemu_st_i64, val, addr, memop, idx);
-
+    // NOTE: we have to do the symbolic write before the concrete write
+    //       because the runtime may need to inspect the memory state
+#if 0
     /* Perform the symbolic memory access. Doing so _after_ the concrete
      * operation ensures that the target address is in the TLB. */
+#endif
     mmu_idx = tcg_const_i64(idx);
     store_size = tcg_const_i64(1 << (memop & MO_SIZE));
     gen_helper_sym_store_guest_i64(cpu_env,
@@ -3407,6 +3425,12 @@ void tcg_gen_qemu_st_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
                                    store_size, mmu_idx);
     tcg_temp_free_i64(store_size);
     tcg_temp_free_i64(mmu_idx);
+
+    gen_ldst_i64(INDEX_op_qemu_st_i64, val, addr, memop, idx);
+
+#if HYBRID_DBG_CONSISTENCY_CHECK
+    gen_helper_sym_check_consistency((TCGv_ptr) tcgv_i64_expr(val), val, addr);
+#endif
 
     if (swap) {
         tcg_temp_free_i64(swap);

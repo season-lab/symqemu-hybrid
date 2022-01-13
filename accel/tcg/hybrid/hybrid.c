@@ -1128,17 +1128,19 @@ void switch_to_emulated(int plt_entry)
     assert(task->depth >= 0 && task->depth <= MAX_DEPTH);
     task->return_addrs[task->depth - 1] = *(ret_addr);
 
-    *(ret_addr) = RETURN_FROM_EMULATION_SENTINEL;
-    _sym_write_memory((uint8_t*)ret_addr, sizeof(void*), NULL, 1);
-    assert(plt_entry >= 0 && plt_entry < plt_stubs_count);
-    task->emulated_state->eip = shadow_plt[plt_entry];
-
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
 
-    printf("Switching to emulated to 0x%lx...\n", task->emulated_state->eip);
+    *(ret_addr) = RETURN_FROM_EMULATION_SENTINEL;
+    _sym_concretize_memory((uint8_t*)ret_addr, sizeof(void*));
+    assert(plt_entry >= 0 && plt_entry < plt_stubs_count);
+    task->emulated_state->eip = shadow_plt[plt_entry];
 
+    printf("Switching to emulated to 0x%lx...\n", task->emulated_state->eip);
+#if HYBRID_DBG_PRINT
+    _sym_print_stack();
+#endif
     if (libc_setjmp_addr[0] == task->emulated_state->eip ||
         libc_setjmp_addr[1] == task->emulated_state->eip) {
         assert(task->long_jumps_used < MAX_DEPTH - 1);
@@ -1252,7 +1254,7 @@ void switch_emulation_indirect_call(void)
     assert(task->depth >= 0 && task->depth <= MAX_DEPTH);
     task->return_addrs[task->depth - 1] = *(ret_addr);
     *(ret_addr)                         = RETURN_FROM_EMULATION_SENTINEL;
-    _sym_write_memory((uint8_t*)ret_addr, sizeof(void*), NULL, 1);
+    _sym_concretize_memory((uint8_t*)ret_addr, sizeof(void*));
 
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
@@ -1454,6 +1456,7 @@ static uint64_t get_runtime_function_addr(char* name)
     RUNTIME_FN_PTR(name, _sym_build_bool_to_sign_bits);
     RUNTIME_FN_PTR(name, _sym_build_float_ordered_not_equal);
     RUNTIME_FN_PTR(name, _sym_build_float_ordered);
+    RUNTIME_FN_PTR(name, _sym_concretize_memory);
 
     printf("Add me:\n\t%s\n", name);
     tcg_abort();
@@ -2163,8 +2166,10 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                         // const char *s_expr = _sym_expr_to_string(expr);
                         // printf("stack_arg[%d]: %s\n", arg_stack_index,
                         // s_expr);
+                        _sym_write_memory(NULL, (uint8_t*)arg_stack_addr, 8, expr, 1, *((uint64_t*)arg_stack_addr));
+                    } else {
+                        _sym_concretize_memory((uint8_t*)arg_stack_addr, 8);
                     }
-                    _sym_write_memory((uint8_t*)arg_stack_addr, 8, expr, 1);
                 }
                 int_arg_count++;
             }
@@ -2178,12 +2183,8 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
         // we reset symbolically the XMM regs...
         for (int i = 0; i < 8; i++) {
-            _sym_write_memory(
-                (uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[0], 8,
-                NULL, 1);
-            _sym_write_memory(
-                (uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[1], 8,
-                NULL, 1);
+            _sym_concretize_memory((uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[0], 8);
+            _sym_concretize_memory((uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[1], 8);
         }
 #if 0
         for (int i = int_arg_count; i < sizeof(arg_regs) / sizeof(char *); i++)
@@ -2368,7 +2369,7 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
             printf("[%lu] SYSCALL: sysinfo(%lx) = %lx\n", task->tid, arg1,
                    retval);
 #endif
-            _sym_write_memory((uint8_t*)arg1, sizeof(struct sysinfo), NULL, 1);
+            _sym_concretize_memory((uint8_t*)arg1, sizeof(struct sysinfo));
             break;
         }
 
@@ -2656,7 +2657,7 @@ void concretize_args(uint64_t target, CPUX86State* emulated_state, task_t* task)
     _sym_set_concrete_mode(1);
 }
 
-void hybrid_debug() {
+void hybrid_debug(void) {
     task_t* task = get_task();
     if (task->emulated_state == NULL) return;
     for(int i = 0; i < SLOT_GPR_END; i++)
