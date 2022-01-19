@@ -697,7 +697,9 @@ void HELPER(sym_notify_block)(uint64_t block_id)
 
 void HELPER(sym_collect_garbage)(void)
 {
+#if 0
     _sym_collect_garbage();
+#endif
 }
 
 void HELPER(sym_check_consistency)(void *expr, uint64_t value, uint64_t site_id)

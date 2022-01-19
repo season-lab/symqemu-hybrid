@@ -5090,8 +5090,9 @@ fi
 if test -e "${symcc_source}/../sym_helpers/libsymhelpers.so"; then
     libs_cpu="-L${symcc_source}/../sym_helpers/ -lsymhelpers $libs_cpu"
     libs_cpu="-Wl,-rpath,${symcc_source}/../sym_helpers/ $libs_cpu"
+    sym_helpers="yes"
 else
-    feature_not_found "Symbolic TCG helpers" ""
+    sym_helpers="no"
 fi
 
 ##########################################
@@ -6514,6 +6515,7 @@ echo "docker            $docker"
 echo "libpmem support   $libpmem"
 echo "libudev           $libudev"
 echo "default devices   $default_devices"
+echo "TCG sym helpers   $sym_helpers"
 
 if test "$supported_cpu" = "no"; then
     echo
@@ -7002,6 +7004,10 @@ if test "$smartcard" = "yes" ; then
   echo "CONFIG_SMARTCARD=y" >> $config_host_mak
   echo "SMARTCARD_CFLAGS=$libcacard_cflags" >> $config_host_mak
   echo "SMARTCARD_LIBS=$libcacard_libs" >> $config_host_mak
+fi
+
+if test "$sym_helpers" = "yes" ; then
+  echo "CONFIG_SYM_HELPERS=y" >> $config_host_mak
 fi
 
 if test "$libusb" = "yes" ; then

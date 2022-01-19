@@ -10,13 +10,13 @@
 #define HYBRID_LIB_CONCRETE_MODE             0
 #define HYBRID_SKIP_LIB_QUERY                0
 #define HYBRID_SKIP_LIB_CONSTRAINTS          0
-#define HYBRID_DISABLE_Z3_SIMPLIFY           1
-#define HYBRID_DISABLE_RANGE_CONSTRAINT      1
+#define HYBRID_DISABLE_Z3_SIMPLIFY           0
+#define HYBRID_DISABLE_RANGE_CONSTRAINT      0
 #define HYBRID_DBG_PRINT                     0
 #define HYBRID_DBG_PRINT_QUERY_ADDR          0
-#define HYBRID_DBG_DUMP_QUERY                1
+#define HYBRID_DBG_DUMP_QUERY                0
 #define HYBRID_DBG_PRINT_CONSTRAINT          0
-#define HYBRID_DBG_CONSISTENCY_CHECK         1
+#define HYBRID_DBG_CONSISTENCY_CHECK         0
 #define HYBRID_DBG_CONSISTENCY_ALT           0
 #define HYBRID_DBG_CHECK_PI_SAT              0
 #define HYBRID_DBG_PRINT_PC                  0

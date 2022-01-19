@@ -594,8 +594,42 @@ static int parse_args(int argc, char **argv)
     return optind;
 }
 
+extern struct timespec t_init;
 int main(int argc, char **argv, char **envp)
 {
+    /* HYBRID */
+    char* pipe_name = getenv("SYMFUSION_TRACER_PIPE");
+    if (pipe_name) {
+        if (pipe_name == NULL) {
+            printf("Please set SYMFUSION_TRACER_PIPE\n");
+            exit(1);
+        } else {
+            printf("Opening pipe: %s\n", pipe_name);
+        }
+        int fd_pipe = open(pipe_name, O_RDONLY);
+        if (fd_pipe <= 0) {
+            printf("Cannot open pipe: %s\n", pipe_name);
+            exit(1);
+        }
+        char buf[16];
+        // printf("Reading from pipe...\n");
+        while (1) {
+            // printf("Parent is waiting...\n");
+            int r = read(fd_pipe, buf, 1);
+            // printf("r = %d errno=%d\n", r, errno == EAGAIN);
+            // if (r != 1) exit(1);
+            if (r == 1) {
+                int pid = fork();
+                if (pid == 0) break; // continue execution
+                // printf("Waiting child...\n");
+                wait(NULL);
+                // printf("Child DONE\n");
+            }
+        }
+    }
+    clock_gettime(CLOCK_MONOTONIC, &t_init);
+    /* HYBRID */
+
     struct target_pt_regs regs1, *regs = &regs1;
     struct image_info info1, *info = &info1;
     struct linux_binprm bprm;

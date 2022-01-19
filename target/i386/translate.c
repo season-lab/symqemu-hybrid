@@ -33,7 +33,7 @@
 #include "exec/log.h"
 
 #include "../../accel/tcg/hybrid/hybrid_debug.h"
-#if HYBRID_USE_SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
 #include "../../../sym_helpers/sym_helpers.h"
 #endif
 
@@ -727,8 +727,11 @@ static void gen_compute_eflags(DisasContext *s)
     }
 
     gen_update_cc_op(s);
-#ifdef SYM_HELPERS
-    gen_helper_sym_init_args_4(tcgv_i64_expr(zero), tcgv_i64_expr(dst), tcgv_i64_expr(src1), tcgv_i64_expr(src2), (TCGv_ptr) zero);
+#ifdef CONFIG_SYM_HELPERS
+    if (hybrid_trace_mode)
+        gen_helper_sym_init_args_4(tcgv_i64_expr(zero), (TCGv_ptr) zero, (TCGv_ptr) zero, (TCGv_ptr) zero, (TCGv_ptr) zero);
+    else
+        gen_helper_sym_init_args_4(tcgv_i64_expr(zero), tcgv_i64_expr(dst), tcgv_i64_expr(src1), tcgv_i64_expr(src2), (TCGv_ptr) zero);
     gen_helper_cc_compute_all_symbolized(cpu_cc_src, dst, src1, src2, cpu_cc_op);
     gen_helper_sym_set_return_value(tcgv_i64_expr(cpu_cc_src), tcgv_i64_expr(zero));
 #else
@@ -816,7 +819,7 @@ static CCPrepare gen_prepare_eflags_c(DisasContext *s, TCGv reg)
        /* The need to compute only C from CC_OP_DYNAMIC is important
           in efficiently implementing e.g. INC at the start of a TB.  */
        gen_update_cc_op(s);
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
         TCGv zero = tcg_const_tl(0);
         gen_helper_sym_init_args_4(tcgv_i64_expr(zero), tcgv_i64_expr(cpu_cc_dst), 
                                 tcgv_i64_expr(cpu_cc_src), tcgv_i64_expr(cpu_cc_src2), (TCGv_ptr) zero);
@@ -2740,7 +2743,7 @@ typedef void (*SSEFunc_0_eppt)(TCGv_ptr env, TCGv_ptr reg_a, TCGv_ptr reg_b,
 #define SSE_SPECIAL ((void *)1)
 #define SSE_DUMMY ((void *)2)
 
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
 #define MMX_OP2_S(x) { gen_helper_ ## x ## _mmx, gen_helper_ ## x ## _xmm_symbolized }
 #else
 #define MMX_OP2_S(x) { gen_helper_ ## x ## _mmx, gen_helper_ ## x ## _xmm }
@@ -2758,7 +2761,7 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x11] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movups, movupd, movss, movsd */
     [0x12] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movlps, movlpd, movsldup, movddup */
     [0x13] = { SSE_SPECIAL, SSE_SPECIAL },  /* movlps, movlpd */
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
     [0x14] = { gen_helper_punpckldq_xmm_symbolized, gen_helper_punpcklqdq_xmm_symbolized },
     [0x15] = { gen_helper_punpckhdq_xmm_symbolized, gen_helper_punpckhqdq_xmm_symbolized },
 #else
@@ -2780,7 +2783,7 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x51] = SSE_FOP(sqrt),
     [0x52] = { gen_helper_rsqrtps, NULL, gen_helper_rsqrtss, NULL },
     [0x53] = { gen_helper_rcpps, NULL, gen_helper_rcpss, NULL },
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
     [0x54] = { gen_helper_pand_xmm_symbolized, gen_helper_pand_xmm_symbolized }, /* andps, andpd */
     [0x55] = { gen_helper_pandn_xmm_symbolized, gen_helper_pandn_xmm_symbolized }, /* andnps, andnpd */
     [0x56] = { gen_helper_por_xmm_symbolized, gen_helper_por_xmm_symbolized }, /* orps, orpd */
@@ -2822,7 +2825,7 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x69] = MMX_OP2_S(punpckhwd),
     [0x6a] = MMX_OP2_S(punpckhdq),
     [0x6b] = MMX_OP2_S(packssdw),
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
     [0x6c] = { NULL, gen_helper_punpcklqdq_xmm_symbolized },
     [0x6d] = { NULL, gen_helper_punpckhqdq_xmm_symbolized },
 #else
@@ -2831,7 +2834,7 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
 #endif
     [0x6e] = { SSE_SPECIAL, SSE_SPECIAL }, /* movd mm, ea */
     [0x6f] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movq, movdqa, , movqdu */
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
     [0x70] = { (SSEFunc_0_epp)gen_helper_pshufw_mmx,
                (SSEFunc_0_epp)gen_helper_pshufd_xmm_symbolized,
                (SSEFunc_0_epp)gen_helper_pshufhw_xmm_symbolized,
@@ -2915,16 +2918,16 @@ static const SSEFunc_0_epp sse_op_table2[3 * 8][2] = {
     [8 + 4] = MMX_OP2_S(psrad),
     [8 + 6] = MMX_OP2_S(pslld),
     [16 + 2] = MMX_OP2_S(psrlq),
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
     [16 + 3] = { NULL, gen_helper_psrldq_xmm_symbolized },
 #else
     [16 + 3] = { NULL, gen_helper_psrldq_xmm },
 #endif
     [16 + 6] = MMX_OP2_S(psllq),
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
     [16 + 7] = { NULL, gen_helper_pslldq_xmm_symbolized },
 #else
-    [16 + 3] = { NULL, gen_helper_psrldq_xmm },
+    [16 + 7] = { NULL, gen_helper_pslldq_xmm },
 #endif
 };
 
@@ -3006,7 +3009,7 @@ struct SSEOpHelper_eppi {
 
 #define SSSE3_OP_S(x) { MMX_OP2_S(x), CPUID_EXT_SSSE3 }
 #define SSSE3_OP(x) { MMX_OP2(x), CPUID_EXT_SSSE3 }
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
 #define SSE41_OP_S(x) { { NULL, gen_helper_ ## x ## _xmm_symbolized }, CPUID_EXT_SSE41 }
 #else
 #define SSE41_OP_S(x) { { NULL, gen_helper_ ## x ## _xmm }, CPUID_EXT_SSE41 }
@@ -3047,7 +3050,7 @@ static const struct SSEOpHelper_epp sse_op_table6[256] = {
     [0x28] = SSE41_OP_S(pmuldq),
     [0x29] = SSE41_OP_S(pcmpeqq),
     [0x2a] = SSE41_SPECIAL, /* movntqda */
-    [0x2b] = SSE41_OP(packusdw),
+    [0x2b] = SSE41_OP_S(packusdw),
     [0x30] = SSE41_OP_S(pmovzxbw),
     [0x31] = SSE41_OP_S(pmovzxbd),
     [0x32] = SSE41_OP_S(pmovzxbq),
@@ -3233,10 +3236,13 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                 gen_ldst_modrm(env, s, modrm, MO_64, OR_TMP0, 0);
                 tcg_gen_addi_ptr(s->ptr0, cpu_env,
                                  offsetof(CPUX86State,xmm_regs[reg]));
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
                 TCGv zero = tcg_const_tl(0);
                 // gen_helper_sym_dbg(cpu_env);
-                gen_helper_sym_init_args_2_void((TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+                if (!hybrid_trace_mode)
+                    gen_helper_sym_init_args_2_void((TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+                else
+                    gen_helper_sym_init_args_2_void((TCGv_ptr) zero, (TCGv_ptr) zero);
                 gen_helper_movq_mm_T0_xmm_symbolized(s->ptr0, s->T0);
                 // gen_helper_sym_dbg(cpu_env);
                 tcg_temp_free(zero);
@@ -3250,9 +3256,12 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                 tcg_gen_addi_ptr(s->ptr0, cpu_env,
                                  offsetof(CPUX86State,xmm_regs[reg]));
                 tcg_gen_trunc_tl_i32(s->tmp2_i32, s->T0);
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
                 TCGv zero = tcg_const_tl(0);
-                gen_helper_sym_init_args_2_void((TCGv_ptr) zero, tcgv_i32_expr(s->tmp2_i32));
+                if (!hybrid_trace_mode)
+                    gen_helper_sym_init_args_2_void((TCGv_ptr) zero, tcgv_i32_expr(s->tmp2_i32));
+                else
+                    gen_helper_sym_init_args_2_void((TCGv_ptr) zero, (TCGv_ptr) zero);
                 gen_helper_movl_mm_T0_xmm_symbolized(s->ptr0, s->tmp2_i32);
                 tcg_temp_free(zero);
 #else
@@ -3758,7 +3767,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                 rm = (modrm & 7) | REX_B(s);
                 tcg_gen_addi_ptr(s->ptr0, cpu_env,
                                  offsetof(CPUX86State, xmm_regs[rm]));
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
                 TCGv zero = tcg_const_tl(0);
                 gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, (TCGv_ptr) zero);
                 gen_helper_pmovmskb_xmm_symbolized(s->tmp2_i32, cpu_env, s->ptr0);
@@ -4529,7 +4538,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
             tcg_gen_addi_ptr(s->ptr1, cpu_env, op2_offset);
             /* XXX: introduce a new table? */
             sse_fn_ppi = (SSEFunc_0_ppi)sse_fn_epp;
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
             int symbolic = 0;
             if (
                 sse_fn_ppi == gen_helper_pshufd_xmm_symbolized
@@ -4574,15 +4583,13 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
         default:
             tcg_gen_addi_ptr(s->ptr0, cpu_env, op1_offset);
             tcg_gen_addi_ptr(s->ptr1, cpu_env, op2_offset);
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
             TCGv zero = tcg_const_tl(0);
-            // gen_helper_sym_dbg(cpu_env);
             gen_helper_sym_init_args_3_void((TCGv_ptr) zero, (TCGv_ptr) zero, (TCGv_ptr) zero);
-#endif
             sse_fn_epp(cpu_env, s->ptr0, s->ptr1);
-#ifdef SYM_HELPERS
-            // gen_helper_sym_dbg(cpu_env);
             tcg_temp_free(zero);
+#else
+            sse_fn_epp(cpu_env, s->ptr0, s->ptr1);
 #endif
             break;
         }
@@ -5079,34 +5086,43 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             }
             break;
         case 6: /* div */
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
             {
             TCGv zero = tcg_const_tl(0);
             TCGv reg_id_eax = tcg_const_tl(R_EAX);
             TCGv reg_id_edx = tcg_const_tl(R_EDX);
-            gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EAX]), reg_id_eax);
-            gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EDX]), reg_id_edx);
-            gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+            if (!hybrid_trace_mode) {
+                gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EAX]), reg_id_eax);
+                gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EDX]), reg_id_edx);
+                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+            } else {
+                gen_helper_sym_store_mem_reg(cpu_env, (TCGv_ptr) zero, reg_id_eax);
+                gen_helper_sym_store_mem_reg(cpu_env, (TCGv_ptr) zero, reg_id_edx);
+                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, (TCGv_ptr) zero);
+            }
+
 #endif
             switch(ot) {
             case MO_8:
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
                 // this helper does not actually use RDX...
-                gen_helper_divb_AL_symbolized(cpu_env, s->T0);
-#else
-                gen_helper_divb_AL(cpu_env, s->T0);
+                if (!hybrid_trace_mode || 1)
+                    gen_helper_divb_AL_symbolized(cpu_env, s->T0);
+                else
 #endif
+                    gen_helper_divb_AL(cpu_env, s->T0);
                 break;
             case MO_16:
-#ifdef SYM_HELPERS
-                gen_helper_divw_AX_symbolized(cpu_env, s->T0);
-#else
-                gen_helper_divw_AX(cpu_env, s->T0);
+#ifdef CONFIG_SYM_HELPERS
+                if (!hybrid_trace_mode || 1)
+                    gen_helper_divw_AX_symbolized(cpu_env, s->T0);
+                else
 #endif
+                    gen_helper_divw_AX(cpu_env, s->T0);
                 break;
             default:
             case MO_32:
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
                 gen_helper_divl_EAX_symbolized(cpu_env, s->T0);
 #else
                 gen_helper_divl_EAX(cpu_env, s->T0);
@@ -5114,7 +5130,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 break;
 #ifdef TARGET_X86_64
             case MO_64:
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
                 gen_helper_divq_EAX_symbolized(cpu_env, s->T0);
 #else
                 gen_helper_divq_EAX(cpu_env, s->T0);
@@ -5122,7 +5138,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 break;
 #endif
             }
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
             gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EAX]), cpu_env, reg_id_eax);
             gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EDX]), cpu_env, reg_id_edx);
             tcg_temp_free(zero);
@@ -5132,18 +5148,24 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
 #endif
             break;
         case 7: /* idiv */
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
             {
             TCGv zero = tcg_const_tl(0);
             TCGv reg_id_eax = tcg_const_tl(R_EAX);
             TCGv reg_id_edx = tcg_const_tl(R_EDX);
-            gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EAX]), reg_id_eax);
-            gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EDX]), reg_id_edx);
-            gen_helper_sym_init_args_2_void((TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+            if (hybrid_trace_mode) {
+                gen_helper_sym_store_mem_reg(cpu_env, (TCGv_ptr) zero, reg_id_eax);
+                gen_helper_sym_store_mem_reg(cpu_env, (TCGv_ptr) zero, reg_id_edx);
+                gen_helper_sym_init_args_2_void((TCGv_ptr) zero, (TCGv_ptr) zero);
+            } else {
+                gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EAX]), reg_id_eax);
+                gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EDX]), reg_id_edx);
+                gen_helper_sym_init_args_2_void((TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+            }
 #endif
             switch(ot) {
             case MO_8:
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
                 // this helper does not actually use RDX...
                 gen_helper_idivb_AL_symbolized(cpu_env, s->T0);
 #else
@@ -5151,7 +5173,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
 #endif
                 break;
             case MO_16:
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
                 gen_helper_idivw_AX_symbolized(cpu_env, s->T0);
 #else
                 gen_helper_idivw_AX(cpu_env, s->T0);
@@ -5159,7 +5181,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 break;
             default:
             case MO_32:;
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
                 gen_helper_idivl_EAX_symbolized(cpu_env, s->T0);
 #else
                 gen_helper_idivl_EAX(cpu_env, s->T0);
@@ -5167,7 +5189,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 break;
 #ifdef TARGET_X86_64
             case MO_64:
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
                 gen_helper_idivq_EAX_symbolized(cpu_env, s->T0);
 #else
                 gen_helper_idivq_EAX(cpu_env, s->T0);
@@ -5175,7 +5197,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 break;
 #endif
             }
-#ifdef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
             gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EAX]), cpu_env, reg_id_eax);
             gen_helper_sym_load_mem_reg(tcgv_i64_expr(cpu_regs[R_EDX]), cpu_env, reg_id_edx);
             tcg_temp_free(zero);
@@ -7448,6 +7470,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         }
         break;
     /* HYBRID */
+#if 0
     case 0x10b: /* undefined instruction */
         // treat it as a syscall
         gen_update_cc_op(s);
@@ -7458,6 +7481,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
            generated after one has entered CPL0 if TF is set in FMASK.  */
         gen_eob_worker(s, false, true);
         break;
+#endif
     /* HYBRID */
 #endif
     case 0x1a2: /* cpuid */

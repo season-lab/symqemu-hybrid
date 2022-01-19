@@ -41,8 +41,7 @@ dh_ctype(ret) HELPER(name) (dh_ctype(t1), dh_ctype(t2), dh_ctype(t3), \
 #include "tcg-runtime-sym.h"
 
 /* HYBRID */
-#include "../../accel/tcg/hybrid/hybrid_debug.h"
-#if HYBRID_USE_SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
 #include "../../../sym_helpers/gen_sym_helpers.h"
 #endif
 /* HYBRID */

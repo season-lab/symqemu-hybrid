@@ -29,16 +29,22 @@
 #include "exec/helper-proto.h"
 #include "exec/helper-gen.h"
 
+/* HYBRID */
+extern uint8_t hybrid_trace_mode;
+/* HYBRID */
+
 /* Slightly questionable macros to save typing and for (arguably) clearer code:
  * SYM_HELPER_BINARY_32(add) generates a helper call to "sym_add_i32", expecting
  * TCGv_i32 variables ret, arg1 and arg2 to exist in the environment.
  * SYM_HELPER_BINARY_64 generates the analogous code for 64-bit helpers. */
 
 #define SYM_HELPER_BINARY_32(name)                                              \
+    if (!hybrid_trace_mode)                                                     \
     gen_helper_sym_ ## name ## _i32(tcgv_i32_expr(ret),                         \
                            arg1, tcgv_i32_expr(arg1),                           \
                            arg2, tcgv_i32_expr(arg2))
 #define SYM_HELPER_BINARY_64(name)                                              \
+    if (!hybrid_trace_mode)                                                     \
     gen_helper_sym_ ## name ## _i64(tcgv_i64_expr(ret),                         \
                            arg1, tcgv_i64_expr(arg1),                           \
                            arg2, tcgv_i64_expr(arg2))
@@ -347,22 +353,25 @@ void tcg_gen_abs_i32(TCGv_i32, TCGv_i32);
 
 static inline void tcg_gen_discard_i32(TCGv_i32 arg)
 {
-    tcg_gen_op1_i64(INDEX_op_discard, tcgv_i32_expr_num(arg));
+    if (!hybrid_trace_mode)
+        tcg_gen_op1_i64(INDEX_op_discard, tcgv_i32_expr_num(arg));
     tcg_gen_op1_i32(INDEX_op_discard, arg);
 }
 
 static inline void tcg_gen_mov_i32(TCGv_i32 ret, TCGv_i32 arg)
 {
     if (ret != arg) {
-        tcg_gen_op2_i64(INDEX_op_mov_i64, tcgv_i32_expr_num(ret),
-                        tcgv_i32_expr_num(arg));
+        if (!hybrid_trace_mode)
+            tcg_gen_op2_i64(INDEX_op_mov_i64, tcgv_i32_expr_num(ret),
+                            tcgv_i32_expr_num(arg));
         tcg_gen_op2_i32(INDEX_op_mov_i32, ret, arg);
     }
 }
 
 static inline void tcg_gen_movi_i32(TCGv_i32 ret, int32_t arg)
 {
-    tcg_gen_op2i_i64(INDEX_op_movi_i64, tcgv_i32_expr_num(ret), 0);
+    if (!hybrid_trace_mode)
+        tcg_gen_op2i_i64(INDEX_op_movi_i64, tcgv_i32_expr_num(ret), 0);
     tcg_gen_op2i_i32(INDEX_op_movi_i32, ret, arg);
 }
 
@@ -471,7 +480,8 @@ static inline void tcg_gen_mul_i32(TCGv_i32 ret, TCGv_i32 arg1, TCGv_i32 arg2)
 static inline void tcg_gen_neg_i32(TCGv_i32 ret, TCGv_i32 arg)
 {
     if (TCG_TARGET_HAS_neg_i32) {
-        gen_helper_sym_neg(tcgv_i32_expr(ret), tcgv_i32_expr(arg));
+        if (!hybrid_trace_mode)
+            gen_helper_sym_neg(tcgv_i32_expr(ret), tcgv_i32_expr(arg));
         tcg_gen_op2_i32(INDEX_op_neg_i32, ret, arg);
     } else {
         tcg_gen_subfi_i32(ret, 0, arg);
@@ -481,7 +491,8 @@ static inline void tcg_gen_neg_i32(TCGv_i32 ret, TCGv_i32 arg)
 static inline void tcg_gen_not_i32(TCGv_i32 ret, TCGv_i32 arg)
 {
     if (TCG_TARGET_HAS_not_i32) {
-        gen_helper_sym_not(tcgv_i32_expr(ret), tcgv_i32_expr(arg));
+        if (!hybrid_trace_mode)
+            gen_helper_sym_not(tcgv_i32_expr(ret), tcgv_i32_expr(arg));
         tcg_gen_op2_i32(INDEX_op_not_i32, ret, arg);
     } else {
         tcg_gen_xori_i32(ret, arg, -1);
@@ -563,22 +574,25 @@ void tcg_gen_abs_i64(TCGv_i64, TCGv_i64);
 #if TCG_TARGET_REG_BITS == 64
 static inline void tcg_gen_discard_i64(TCGv_i64 arg)
 {
-    tcg_gen_op1_i64(INDEX_op_discard, tcgv_i64_expr_num(arg));
+    if (!hybrid_trace_mode)
+        tcg_gen_op1_i64(INDEX_op_discard, tcgv_i64_expr_num(arg));
     tcg_gen_op1_i64(INDEX_op_discard, arg);
 }
 
 static inline void tcg_gen_mov_i64(TCGv_i64 ret, TCGv_i64 arg)
 {
     if (ret != arg) {
-        tcg_gen_op2_i64(INDEX_op_mov_i64, tcgv_i64_expr_num(ret),
-                        tcgv_i64_expr_num(arg));
+        if (!hybrid_trace_mode)
+            tcg_gen_op2_i64(INDEX_op_mov_i64, tcgv_i64_expr_num(ret),
+                            tcgv_i64_expr_num(arg));
         tcg_gen_op2_i64(INDEX_op_mov_i64, ret, arg);
     }
 }
 
 static inline void tcg_gen_movi_i64(TCGv_i64 ret, int64_t arg)
 {
-    tcg_gen_op2i_i64(INDEX_op_movi_i64, tcgv_i64_expr_num(ret), 0);
+    if (!hybrid_trace_mode)
+        tcg_gen_op2i_i64(INDEX_op_movi_i64, tcgv_i64_expr_num(ret), 0);
     tcg_gen_op2i_i64(INDEX_op_movi_i64, ret, arg);
 }
 
@@ -755,7 +769,8 @@ void tcg_gen_mul_i64(TCGv_i64 ret, TCGv_i64 arg1, TCGv_i64 arg2);
 static inline void tcg_gen_neg_i64(TCGv_i64 ret, TCGv_i64 arg)
 {
     if (TCG_TARGET_HAS_neg_i64) {
-        gen_helper_sym_neg(tcgv_i64_expr(ret), tcgv_i64_expr(arg));
+        if (!hybrid_trace_mode)
+            gen_helper_sym_neg(tcgv_i64_expr(ret), tcgv_i64_expr(arg));
         tcg_gen_op2_i64(INDEX_op_neg_i64, ret, arg);
     } else {
         tcg_gen_subfi_i64(ret, 0, arg);

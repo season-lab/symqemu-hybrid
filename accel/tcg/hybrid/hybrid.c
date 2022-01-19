@@ -119,6 +119,7 @@ static task_t tasks[MAX_TASKS] = {0};
 #define MAX_PLT_ENTRIES 1024
 uint64_t shadow_plt[MAX_PLT_ENTRIES] = {0};
 
+uint8_t        hybrid_trace_mode        = 0;
 uint64_t       start_addr               = 0;
 static GSList* plt_patches              = NULL;
 static GSList* syscall_patches          = NULL;
@@ -1290,12 +1291,11 @@ static uint8_t runtime_plt_stubs[PLT_STUBS_SIZE];
 uint64_t check_indirect_target(uint64_t target, uint64_t* args,
                                uint64_t args_count);
 
-static struct timespec t_init;
+struct timespec t_init;
 
 static inline void get_time(struct timespec* tp)
 {
-    clockid_t clk_id = CLOCK_MONOTONIC;
-    clock_gettime(clk_id, tp);
+    clock_gettime(CLOCK_MONOTONIC, tp);
 }
 
 static inline uint64_t get_diff_time_microsec(struct timespec* start,
@@ -1313,8 +1313,12 @@ void hybrid_init(void)
     if (hybrid_init_done)
         return;
 
-    get_time(&t_init);
-    printf("DOING INIT\n");
+    printf("\nHYBRID INIT\n");
+
+    // get_time(&t_init);
+
+    if (getenv("SYMFUSION_PATH_TRACER"))
+        hybrid_trace_mode = 1;
 
     char* res = getenv("HYBRID_CONF_FILE");
     if (res)
@@ -1402,8 +1406,8 @@ static uint64_t get_runtime_function_addr(char* name)
     RUNTIME_FN_PTR(name, _sym_memcpy);
     RUNTIME_FN_PTR(name, _sym_build_unsigned_less_equal);
     RUNTIME_FN_PTR(name, _sym_build_signed_rem);
-    RUNTIME_FN_PTR(name, _sym_print_path_constraints);
-    RUNTIME_FN_PTR(name, _sym_debug_function_after_return);
+    // RUNTIME_FN_PTR(name, _sym_print_path_constraints);
+    // RUNTIME_FN_PTR(name, _sym_debug_function_after_return);
     RUNTIME_FN_PTR(name, _sym_build_equal);
     RUNTIME_FN_PTR(name, _sym_memmove);
     RUNTIME_FN_PTR(name, memcmp_symbolized);
@@ -1457,6 +1461,9 @@ static uint64_t get_runtime_function_addr(char* name)
     RUNTIME_FN_PTR(name, _sym_build_float_ordered_not_equal);
     RUNTIME_FN_PTR(name, _sym_build_float_ordered);
     RUNTIME_FN_PTR(name, _sym_concretize_memory);
+    RUNTIME_FN_PTR(name, _sym_initialize);
+    RUNTIME_FN_PTR(name, _sym_finalize);
+    RUNTIME_FN_PTR(name, _sym_build_insert);
 
     printf("Add me:\n\t%s\n", name);
     tcg_abort();
@@ -1579,7 +1586,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
     // patch PLTs && syscall insns
     if (target == start_addr) {
 
-#if 0
+#if 1
         struct timespec t0;
         get_time(&t0);
 #endif
@@ -1825,10 +1832,10 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                 runtime_plt_patch_t* p =
                     (runtime_plt_patch_t*)runtime_plt->data;
                 runtime_plt = g_slist_next(runtime_plt);
-
+#if 0
                 if (strcmp("_sym_initialize", p->name) == 0)
                     continue;
-
+#endif
                 // printf("RUNTIME PATCH FOR FUNCTION %s\n", p->name);
 
                 void** plt = (void**)(base_address + p->offset);
@@ -1909,9 +1916,9 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         struct timespec t1;
         get_time(&t1);
         uint64_t delta = get_diff_time_microsec(&t0, &t1);
-        printf("Setup time: %lu\n", delta / 1000);
+        fprintf(stderr, "Setup time: %lu\n", delta / 1000);
         delta = get_diff_time_microsec(&t_init, &t1);
-        printf("Setup time: %lu\n", delta / 1000);
+        fprintf(stderr, "Setup time: %lu\n", delta / 1000);
 #endif
     }
 
@@ -1922,7 +1929,13 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 #endif
     // save_qemu_context_safe(task->qemu_context);
     save_qemu_context_safe();
-
+#if 0
+    static int count = 0;
+    struct timespec t1;
+    get_time(&t1);
+    uint64_t delta = get_diff_time_microsec(&t_init, &t1);
+    fprintf(stderr, "Time [count=%d]: %lu\n", count++, delta / 1000);
+#endif
     if (task->qemu_context->valid) {
 #if 0
         for (int i = 0; i < SLOT_GPR_END; i++)
@@ -1972,13 +1985,18 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
             // these sanity checks make sense only
             // after jitting... should we remove them?
+#if 0
             assert(ret_val_ts->symbolic_expression == 1);
             assert(ret_val_ts->mem_coherent == 1);
             assert(ret_val_ts->val_type == TEMP_VAL_MEM);
-
+#endif
             uint64_t** ret_val_expr =
                 (uint64_t**)((uint64_t)ret_val_ts->mem_offset +
                              (uint64_t)task->emulated_state);
+
+            if (hybrid_trace_mode)
+                *ret_val_expr = NULL;
+            
             if (*ret_val_expr) {
                 size_t current_bits = _sym_bits_helper(*ret_val_expr);
                 if (current_bits < 64) {
@@ -2033,6 +2051,11 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
             }
         }
 
+#if 0
+        struct timespec t1;
+        get_time(&t1);
+        fprintf(stderr, "Time: %ld\n", get_diff_time_microsec(&t_init, &t1) / 1000);
+#endif
         printf("\n[depth=%ld] Resuming native to 0x%lx [0x%lx]\n", task->depth,
                target, task->emulated_context->pc);
 
@@ -2110,12 +2133,16 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
             uint8_t is_int = _sym_is_int_parameter(i);
             // printf("Argument %d is int: %d\n", i, is_int);
 
+            if (hybrid_trace_mode)
+                expr = NULL;
+
             if (is_int) {
                 if (int_arg_count < 6) {
                     // printf("Setting symbolic regs: %s\n",
                     // arg_regs[int_arg_count]);
-                    TCGTemp* arg =
-                        tcg_find_temp_arch_reg(arg_regs[int_arg_count]);
+                    TCGTemp* arg = NULL;
+                    if (!hybrid_trace_mode)
+                        arg = tcg_find_temp_arch_reg(arg_regs[int_arg_count]);
                     if (arg) {
                         // these sanity checks make sense only
                         // after jitting... should we remove them?
@@ -2232,7 +2259,7 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
         struct timespec t1;
         get_time(&t1);
         uint64_t delta = get_diff_time_microsec(&t_init, &t1);
-        printf("Time before syscall: %lu\n", delta / 1000);
+        fprintf(stderr, "Time before syscall %ld: %lu\n", num, delta / 1000);
     }
 #endif
 
@@ -2385,7 +2412,7 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
         struct timespec t1;
         get_time(&t1);
         uint64_t delta = get_diff_time_microsec(&t_init, &t1);
-        printf("Time after syscall: %lu\n", delta / 1000);
+        fprintf(stderr, "Time after syscall: %lu\n", delta / 1000);
     }
 #endif
 

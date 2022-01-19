@@ -7144,21 +7144,18 @@ static int do_openat(void *cpu_env, int dirfd, const char *pathname, int flags, 
 
     const char* fpath = path(pathname);
 #if 1
-    const char* r1 = "/home/symbolic/qemu-hybrid-test/symcc-hybrid/build/SymRuntime-prefix/src/SymRuntime-build/libSymRuntime.so";
-    const char* r1_fake = "/home/symbolic/qemu-hybrid-test/symcc-hybrid/build/SymFakeRuntime-prefix/src/SymFakeRuntime-build/libSymRuntime.so";
-    const char* r2 = "/symfusion/symcc-hybrid/build/SymRuntime-prefix/src/SymRuntime-build/libSymRuntime.so";
-    const char* r2_fake = "/symfusion/symcc-hybrid/build/SymFakeRuntime-prefix/src/SymFakeRuntime-build/libSymRuntime.so";
-    const char* r3 = "/home/symfusion/bin/symcc-hybrid/SymRuntime-prefix/src/SymRuntime-build/libSymRuntime.so";
-    const char* r3_fake = "/home/symfusion/bin/symcc-hybrid/SymFakeRuntime-prefix/src/SymFakeRuntime-build/libSymRuntime.so";
-    if (strcmp(fpath, r1) == 0) {
-        fpath = r1_fake;
-        printf("fixing open path: %s\n", fpath);
-    } else if (strcmp(fpath, r2) == 0) {
-        fpath = r2_fake;
-        printf("fixing open path: %s\n", fpath);
-    } else if (strcmp(fpath, r3) == 0) {
-        fpath = r3_fake;
-        printf("fixing open path: %s\n", fpath);
+    const char* suffix = "/SymRuntime-prefix/src/SymRuntime-build/libSymRuntime.so";
+    char* found = strstr(fpath, suffix);
+    if (found) {
+        int len = strlen(fpath);
+        int new_len = len + 2 * strlen("Fake") + 1;
+        char* new_path = malloc(new_len);
+        int offset = len - strlen(suffix);
+        memcpy(new_path, fpath, new_len);
+        const char* new_suffix = "/SymFakeRuntime-prefix/src/SymFakeRuntime-build/libSymRuntime.so";
+        memcpy(new_path + offset, new_suffix, new_len - offset);
+        printf("fixing open path: %s => %s\n", fpath, new_path);
+        fpath = new_path;
     }
 #endif
 
@@ -7282,6 +7279,7 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
 
     switch(num) {
     case TARGET_NR_exit:
+        printf("EXIT\n");
         /* In old applications this may be used to implement _exit(2).
            However in threaded applictions it is used for thread termination,
            and _exit_group is used for application termination.
@@ -9292,6 +9290,7 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
 #ifdef __NR_exit_group
         /* new thread calls */
     case TARGET_NR_exit_group:
+        fprintf(stderr, "EXIT\n");
         preexit_cleanup(cpu_env, arg1);
         return get_errno(exit_group(arg1));
 #endif

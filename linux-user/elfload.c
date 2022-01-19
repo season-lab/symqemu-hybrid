@@ -2394,7 +2394,7 @@ static void load_elf_image(const char *image_name, int image_fd,
 
     if (!hybrid_entry_point) { 
         hybrid_entry_point = info->entry;
-        printf("ENTRY POINT: %lx\n", hybrid_entry_point);
+        // printf("ENTRY POINT: %lx\n", hybrid_entry_point);
     }
 
     for (i = 0; i < ehdr->e_phnum; i++) {
@@ -2441,14 +2441,14 @@ static void load_elf_image(const char *image_name, int image_fd,
                     info->start_code = vaddr;
                     if (!hybrid_start_code) {
                         hybrid_start_code = vaddr;
-                        printf("START CODE: %lx\n", hybrid_start_code);
+                        // printf("START CODE: %lx\n", hybrid_start_code);
                     }
                 }
                 if (vaddr_ef > info->end_code) {
                     info->end_code = vaddr_ef;
                     if (!hybrid_end_code) {
                         hybrid_end_code = vaddr_ef;
-                        printf("END CODE: %lx\n", hybrid_end_code);
+                        // printf("END CODE: %lx\n", hybrid_end_code);
                     }
                 }
             }
