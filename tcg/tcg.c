@@ -67,7 +67,7 @@
 #include "sysemu/sysemu.h"
 
 #include "../accel/tcg/hybrid/hybrid_debug.h"
-#if HYBRID_USE_SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
 #include "../../sym_helpers/sym_helpers.h"
 #include "../../sym_helpers/sym_check_helpers.h"
 #endif
@@ -1953,7 +1953,7 @@ static char *tcg_get_arg_str(TCGContext *s, char *buf,
 }
 
 /* Find helper name.  */
-#ifndef SYM_HELPERS
+#ifdef CONFIG_SYM_HELPERS
 static inline 
 #endif
 const char *tcg_find_helper(TCGContext *s, uintptr_t val)
@@ -4176,7 +4176,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     }
 #endif
 
-#ifdef SYM_HELPERS   
+#ifdef CONFIG_SYM_HELPERS 
     // sym_check_helpers(tb, tcg_ctx);
 #endif
 

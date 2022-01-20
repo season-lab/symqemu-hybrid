@@ -617,13 +617,16 @@ int main(int argc, char **argv, char **envp)
             // printf("Parent is waiting...\n");
             int r = read(fd_pipe, buf, 1);
             // printf("r = %d errno=%d\n", r, errno == EAGAIN);
-            // if (r != 1) exit(1);
             if (r == 1) {
                 int pid = fork();
                 if (pid == 0) break; // continue execution
                 // printf("Waiting child...\n");
                 wait(NULL);
                 // printf("Child DONE\n");
+            } else {
+                struct timespec sleep;
+                sleep.tv_nsec = 10000;
+                nanosleep(&sleep, NULL);
             }
         }
     }
