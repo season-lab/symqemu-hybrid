@@ -1953,7 +1953,7 @@ static char *tcg_get_arg_str(TCGContext *s, char *buf,
 }
 
 /* Find helper name.  */
-#ifdef CONFIG_SYM_HELPERS
+#ifndef CONFIG_SYM_HELPERS
 static inline 
 #endif
 const char *tcg_find_helper(TCGContext *s, uintptr_t val)
