@@ -611,6 +611,13 @@ int main(int argc, char **argv, char **envp)
             printf("Cannot open pipe: %s\n", pipe_name);
             exit(1);
         }
+
+        char* f_done = getenv("SYMFUSION_PATH_TRACER_FILE_DONE");
+        if (f_done == NULL) {
+            printf("SYMFUSION_PATH_TRACER_FILE_DONE was not set\n");
+            abort();
+        }
+            
         char buf[16];
         // printf("Reading from pipe...\n");
         while (1) {
@@ -621,7 +628,14 @@ int main(int argc, char **argv, char **envp)
                 int pid = fork();
                 if (pid == 0) break; // continue execution
                 // printf("Waiting child...\n");
-                wait(NULL);
+
+                int status;
+                wait(&status);
+                FILE* fp = fopen(f_done, "w");
+                status = WEXITSTATUS(status);
+                fwrite(&status, sizeof(status), 1, fp);
+                fclose(fp);
+
                 // printf("Child DONE\n");
             } else {
                 struct timespec sleep;
