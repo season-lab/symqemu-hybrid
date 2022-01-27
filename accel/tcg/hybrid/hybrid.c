@@ -2341,9 +2341,11 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                         if (strcmp(name, "libc++.so.1") == 0) {
                             hybrid_start_lib_1 = retval;
                             hybrid_end_lib_1   = retval + arg2;
+                            printf("Found instrumented libc++ lib!\n");
                         } else if (strcmp(name, "libc++abi.so.1") == 0) {
                             hybrid_start_lib_2 = retval;
                             hybrid_end_lib_2   = retval + arg2;
+                            printf("Found instrumented libc++abi lib!\n");
                         } else
                             tcg_abort();
                     } else {
