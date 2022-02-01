@@ -50,7 +50,7 @@ void switch_back_to_native(uint64_t target, CPUX86State* env);
 void concretize_args(uint64_t target, CPUX86State* env, task_t* task);
 extern void save_native_context(void);
 extern void return_handler_from_emulation(void);
-void        hybrid_init(void);
+void        hybrid_init(CPUState *cpu);
 void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                     uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6,
                     uint64_t arg7, uint64_t arg8);
@@ -58,6 +58,8 @@ void hybrid_new_thread(uint64_t tid, CPUX86State* state);
 void hybrid_set_sigill_handler(void);
 int  hybrid_is_task_native(void);
 void hybrid_debug(void);
+
+void forkserver(void);
 
 extern uint64_t libc_concrete_funcs[256];
 

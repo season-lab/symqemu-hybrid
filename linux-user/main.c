@@ -595,55 +595,10 @@ static int parse_args(int argc, char **argv)
 }
 
 extern struct timespec t_init;
+void forkserver(void);
 int main(int argc, char **argv, char **envp)
 {
     /* HYBRID */
-    char* pipe_name = getenv("SYMFUSION_TRACER_PIPE");
-    if (pipe_name) {
-        if (pipe_name == NULL) {
-            printf("Please set SYMFUSION_TRACER_PIPE\n");
-            exit(1);
-        } else {
-            printf("Opening pipe: %s\n", pipe_name);
-        }
-        int fd_pipe = open(pipe_name, O_RDONLY);
-        if (fd_pipe <= 0) {
-            printf("Cannot open pipe: %s\n", pipe_name);
-            exit(1);
-        }
-
-        char* f_done = getenv("SYMFUSION_PATH_TRACER_FILE_DONE");
-        if (f_done == NULL) {
-            printf("SYMFUSION_PATH_TRACER_FILE_DONE was not set\n");
-            abort();
-        }
-            
-        char buf[16];
-        // printf("Reading from pipe...\n");
-        while (1) {
-            // printf("Parent is waiting...\n");
-            int r = read(fd_pipe, buf, 1);
-            // printf("r = %d errno=%d\n", r, errno == EAGAIN);
-            if (r == 1) {
-                int pid = fork();
-                if (pid == 0) break; // continue execution
-                // printf("Waiting child...\n");
-
-                int status;
-                wait(&status);
-                FILE* fp = fopen(f_done, "w");
-                status = WEXITSTATUS(status);
-                fwrite(&status, sizeof(status), 1, fp);
-                fclose(fp);
-
-                // printf("Child DONE\n");
-            } else {
-                struct timespec sleep;
-                sleep.tv_nsec = 10000;
-                nanosleep(&sleep, NULL);
-            }
-        }
-    }
     clock_gettime(CLOCK_MONOTONIC, &t_init);
     /* HYBRID */
 
@@ -694,9 +649,6 @@ int main(int argc, char **argv, char **envp)
         exit(1);
     }
     trace_init_file(trace_file);
-
-    /* Initialize the symbolic backend */
-    _sym_initialize_qemu();
 
     /* Zero out regs */
     memset(regs, 0, sizeof(struct target_pt_regs));
@@ -891,6 +843,7 @@ int main(int argc, char **argv, char **envp)
         }
         gdb_handlesig(cpu, 0);
     }
+
     cpu_loop(env);
     /* never exits */
     return 0;

@@ -1308,12 +1308,15 @@ static inline uint64_t get_diff_time_microsec(struct timespec* start,
 
 //__thread
 int  hybrid_init_done = 0;
-void hybrid_init(void)
+static CPUState* hybrid_cpu;
+void hybrid_init(CPUState *cpu)
 {
     if (hybrid_init_done)
         return;
 
     printf("\nHYBRID INIT\n");
+
+    _sym_pre_initialize_qemu();
 
     // get_time(&t_init);
 
@@ -1332,6 +1335,8 @@ void hybrid_init(void)
 
     assert(start_addr);
     hybrid_init_done = 1;
+
+    hybrid_cpu = cpu;
 }
 
 #define SymExpr void*
@@ -1921,6 +1926,10 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         fprintf(stderr, "Setup time: %lu\n", delta / 1000);
 #endif
     }
+
+    /* Initialize the symbolic backend */
+    forkserver();
+    _sym_initialize_qemu();
 
 #if 0
     uint64_t base;
@@ -2691,4 +2700,223 @@ void hybrid_debug(void) {
     if (task->emulated_state == NULL) return;
     for(int i = 0; i < SLOT_GPR_END; i++)
         printf("R[%d] = %lx\n", i, task->emulated_state->regs[i]);
+}
+
+struct afl_tb {
+  target_ulong pc;
+  target_ulong cs_base;
+  uint32_t     flags;
+  uint32_t     cf_mask;
+};
+
+struct afl_tsl {
+  struct afl_tb tb;
+  char          is_chain;
+};
+
+struct afl_chain {
+  struct afl_tb last_tb;
+  uint32_t      cf_mask;
+  int           tb_exit;
+};
+
+#define FORKSRV_FD          198
+#define TSL_FD (FORKSRV_FD - 1)
+
+static unsigned char afl_fork_child;
+unsigned int afl_forksrv_pid;
+static int forkserver_running = 0;
+
+void forkserver_request_tsl(target_ulong pc, target_ulong cb, uint32_t flags,
+                            uint32_t cf_mask, TranslationBlock *last_tb,
+                            int tb_exit);
+void forkserver_request_tsl(target_ulong pc, target_ulong cb, uint32_t flags,
+                            uint32_t cf_mask, TranslationBlock *last_tb,
+                            int tb_exit) {
+
+    if (!afl_fork_child) return;
+
+    struct afl_tsl   t;
+    struct afl_chain c;
+
+    t.tb.pc = pc;
+    t.tb.cs_base = cb;
+    t.tb.flags = flags;
+    t.tb.cf_mask = cf_mask;
+    t.is_chain = (last_tb != NULL);
+
+    if (write(TSL_FD, &t, sizeof(struct afl_tsl)) != sizeof(struct afl_tsl))
+        return;
+
+    if (t.is_chain) {
+        c.last_tb.pc = last_tb->pc;
+        c.last_tb.cs_base = last_tb->cs_base;
+        c.last_tb.flags = last_tb->flags;
+        c.cf_mask = cf_mask;
+        c.tb_exit = tb_exit;
+
+        if (write(TSL_FD, &c, sizeof(struct afl_chain)) != sizeof(struct afl_chain))
+            return;
+    }
+
+    // printf("forkserver_request_tsl: request sent to parent for %lx cflags=%x\n", pc, cf_mask);
+}
+
+static inline int is_valid_addr(target_ulong addr) {
+    int          flags;
+    target_ulong page;
+
+    page = addr & TARGET_PAGE_MASK;
+
+    flags = page_get_flags(page);
+    if (!(flags & PAGE_VALID) || !(flags & PAGE_READ)) return 0;
+
+    return 1;
+}
+
+void tb_add_jump(TranslationBlock *tb, int n,
+                               TranslationBlock *tb_next);
+
+static void forkserver_wait_tsl(CPUState *cpu, int fd) {
+
+    if (!forkserver_running) return;
+    // printf("forkserver_wait_tsl\n");
+
+    struct afl_tsl    t;
+    struct afl_chain  c;
+    TranslationBlock *tb, *last_tb;
+
+    while (1) {
+
+        uint8_t invalid_pc = 0;
+
+        /* Broken pipe means it's time to return to the fork server routine. */
+        if (read(fd, &t, sizeof(struct afl_tsl)) != sizeof(struct afl_tsl)) break;
+
+        tb = tb_htable_lookup(cpu, t.tb.pc, t.tb.cs_base, t.tb.flags, t.tb.cf_mask);
+
+        if (!tb) {
+
+            /* The child may request to transate a block of memory that is not
+                mapped in the parent (e.g. jitted code or dlopened code).
+                This causes a SIGSEV in gen_intermediate_code() and associated
+                subroutines. We simply avoid caching of such blocks. */
+
+            if (is_valid_addr(t.tb.pc)) {
+                mmap_lock();
+                tb = tb_gen_code(cpu, t.tb.pc, t.tb.cs_base, t.tb.flags, t.tb.cf_mask);
+                mmap_unlock();
+                // printf("forkserver_wait_tsl: jitting block %lx [%lx, %x, %x]\n", t.tb.pc, t.tb.cs_base, t.tb.flags, t.tb.cf_mask);
+#if 0
+                if (!tb_htable_lookup(cpu, t.tb.pc, t.tb.cs_base, t.tb.flags, t.tb.cf_mask)) {
+                    printf("ERROR: jitted block is not in cache!\n");
+                    abort();
+                }
+#endif
+            } else {
+                invalid_pc = 1;
+            }
+        }
+
+        if (t.is_chain) {
+
+            if (read(fd, &c, sizeof(struct afl_chain)) != sizeof(struct afl_chain))
+                break;
+
+            if (!invalid_pc) {
+                last_tb = tb_htable_lookup(cpu, c.last_tb.pc, c.last_tb.cs_base,
+                                        c.last_tb.flags, c.cf_mask);
+                if (last_tb) { 
+                    tb_add_jump(last_tb, c.tb_exit, tb); 
+                    // printf("forkserver_wait_tsl: chaining block %lx with %lx\n", c.last_tb.pc, t.tb.pc);
+                }
+            }
+        }
+    }
+    close(fd);
+}
+
+static void forkserver_loop(CPUState *cpu) {
+
+    printf("forkserver_loop\n");
+    char* pipe_name = getenv("SYMFUSION_TRACER_PIPE");
+    if (pipe_name == NULL) return;
+
+    forkserver_running = 1;
+    rcu_disable_atfork();
+
+    printf("Opening pipe: %s\n", pipe_name);
+
+    int fd_pipe = open(pipe_name, O_RDONLY);
+    if (fd_pipe <= 0) {
+        printf("Cannot open pipe: %s\n", pipe_name);
+        exit(1);
+    }
+
+    char* f_done = getenv("SYMFUSION_PATH_TRACER_FILE_DONE");
+    if (f_done == NULL) {
+        printf("SYMFUSION_PATH_TRACER_FILE_DONE was not set\n");
+        abort();
+    }
+        
+    char buf[16];
+
+    afl_forksrv_pid = getpid();
+
+    /* All right, let's await orders... */
+
+    struct timespec sleep;
+    sleep.tv_nsec = 10000;
+    while (1) {
+
+        pid_t child_pid;
+        int status, t_fd[2];
+
+        int r = read(fd_pipe, buf, 1);
+        if (r != 1) {
+            nanosleep(&sleep, NULL);
+            continue;
+        }
+
+        /* Establish a channel with child to grab translation commands. We'll
+        read from t_fd[0], child will write to TSL_FD. */
+
+        if (pipe(t_fd) || dup2(t_fd[1], TSL_FD) < 0) exit(3);
+        close(t_fd[1]);
+
+        child_pid = fork();
+        if (child_pid < 0) exit(4);
+
+        if (!child_pid) {
+            /* Child process. Close descriptors and run free. */
+            // printf("CHILD\n");
+            afl_fork_child = 1;
+            close(t_fd[0]);
+            return;
+        }
+
+        /* Parent. */
+        // printf("PARENT\n");
+
+        close(TSL_FD);
+
+        /* Collect translation requests until child dies and closes the pipe. */
+
+        forkserver_wait_tsl(cpu, t_fd[0]);
+
+        /* Get and relay exit status to parent. */
+
+        if (waitpid(child_pid, &status, 0) < 0) exit(6);
+
+        FILE* fp = fopen(f_done, "w");
+        status = WEXITSTATUS(status);
+        fwrite(&status, sizeof(status), 1, fp);
+        fclose(fp);
+    }
+}
+
+void forkserver(void) {
+    if (forkserver_running) return;
+    printf("Starting forkserver\n");
+    forkserver_loop(hybrid_cpu);
 }

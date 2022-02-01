@@ -360,7 +360,13 @@ void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr)
     }
 }
 
-static inline void tb_add_jump(TranslationBlock *tb, int n,
+#if 0
+static inline 
+#else
+void tb_add_jump(TranslationBlock *tb, int n,
+                               TranslationBlock *tb_next);
+#endif
+void tb_add_jump(TranslationBlock *tb, int n,
                                TranslationBlock *tb_next)
 {
     uintptr_t old;
@@ -399,6 +405,10 @@ static inline void tb_add_jump(TranslationBlock *tb, int n,
     return;
 }
 
+void forkserver_request_tsl(target_ulong pc, target_ulong cb, uint32_t flags,
+                            uint32_t cf_mask, TranslationBlock *last_tb,
+                            int tb_exit);
+
 static inline TranslationBlock *tb_find(CPUState *cpu,
                                         TranslationBlock *last_tb,
                                         int tb_exit, uint32_t cf_mask)
@@ -407,12 +417,15 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     target_ulong cs_base, pc;
     uint32_t flags;
 
+    int was_translated = 0, was_chained = 0; // HYBRID
+
     tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, cf_mask, &last_tb);
     // last_tb = NULL;
     if (tb == NULL) {
         mmap_lock();
         tb = tb_gen_code(cpu, pc, cs_base, flags, cf_mask);
         mmap_unlock();
+        was_translated = 1; // HYBRID
         /* We add the TB in the virtual pc hash table for the fast lookup */
         atomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)], tb);
     }
@@ -428,7 +441,15 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     /* See if we can patch the calling TB. */
     if (last_tb) {
         tb_add_jump(last_tb, tb_exit, tb);
+        was_chained = 1; // HYBRID
     }
+
+    if (was_translated || was_chained) { // HYBRID
+        // tcg_gen_code is doing this...
+        cf_mask |= cpu->cluster_index << CF_CLUSTER_SHIFT;
+        forkserver_request_tsl(pc, cs_base, flags, cf_mask, was_chained ? last_tb : NULL, tb_exit);
+    }
+
     return tb;
 }
 
@@ -714,7 +735,7 @@ int cpu_exec(CPUState *cpu)
     }
 
     /* HYBRID */
-    hybrid_init();
+    hybrid_init(cpu);
     /* HYBRID */
 
     /* if an exception is pending, we execute it here */
