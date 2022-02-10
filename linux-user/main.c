@@ -595,7 +595,6 @@ static int parse_args(int argc, char **argv)
 }
 
 extern struct timespec t_init;
-void forkserver(void);
 int main(int argc, char **argv, char **envp)
 {
     /* HYBRID */

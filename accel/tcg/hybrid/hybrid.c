@@ -397,15 +397,11 @@ static int parse_config_file(char* file)
     return 0;
 }
 
-int     cached_pid = -1;
 task_t* get_task(void)
 {
+    return &tasks[0];
+#if 0 // FIXME: use it when making it thread-safe!
     pid_t tid;
-    if (cached_pid < 0) {
-        tid        = syscall(__NR_gettid);
-        cached_pid = tid;
-    }
-
     tid          = cached_pid;
     task_t* task = NULL;
 
@@ -421,14 +417,17 @@ task_t* get_task(void)
         tcg_abort();
 
     return task;
+#endif
 }
 
-void        hybrid_syscall_handler(int mysignal, siginfo_t* si, void* arg);
 extern void restore_qemu_context(CpuContext* context);
 
+#if 0
+void        hybrid_syscall_handler(int mysignal, siginfo_t* si, void* arg);
 void save_native_context_clobber_syscall(uint64_t rsp, uint64_t* save_area);
 void save_native_context_clobber_syscall(uint64_t rsp, uint64_t* save_area)
 {
+    abort();
     task_t* task = get_task();
 
     uint64_t fs_base;
@@ -696,6 +695,7 @@ void hybrid_syscall_handler(int mysignal, siginfo_t* si, void* arg)
     arch_prctl(ARCH_SET_FS, fs_base);
 #endif
 }
+#endif
 
 static task_t* hybrid_new_task(uint64_t tid)
 {
@@ -730,11 +730,12 @@ void hybrid_new_thread(uint64_t tid, CPUX86State* state)
 
     // printf("THREAD EIP: %lx\n", state->eip);
 
-    uint64_t fs_base;
-    arch_prctl(ARCH_GET_FS, (uint64_t)&fs_base);
+    // uint64_t fs_base;
+    // arch_prctl(ARCH_GET_FS, (uint64_t)&fs_base);
     // printf("PARENT QEMU FSBASE: %lx\n", fs_base);
 }
 
+#if 0
 void hybrid_set_sigill_handler(void)
 {
 #if 0
@@ -744,10 +745,11 @@ void hybrid_set_sigill_handler(void)
     action.sa_flags     = SA_SIGINFO | SA_RESTART;
     sigaction(SIGILL, &action, &task->qemu_context->sigill_handler);
 #endif
-    uint64_t fs_base;
-    arch_prctl(ARCH_GET_FS, (uint64_t)&fs_base);
+    // uint64_t fs_base;
+    // arch_prctl(ARCH_GET_FS, (uint64_t)&fs_base);
     // printf("CHILD QEMU FSBASE: %lx\n", fs_base);
 }
+#endif
 
 int hybrid_is_task_native(void)
 {
@@ -812,8 +814,9 @@ void save_qemu_context_clobber(uint64_t rsp, uint64_t* save_area)
     context->flags = save_area[-15];
 
     // fs base
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     arch_prctl(ARCH_GET_FS, (uint64_t)&context->fs_base);
-
+#endif
     // program counter: return address
     context->pc = *(((uint64_t*)rsp));
 
@@ -885,8 +888,9 @@ void save_native_context_clobber(uint64_t rsp, uint64_t* save_area)
     context->flags = save_area[-15];
 
     // fs base
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     arch_prctl(ARCH_GET_FS, (uint64_t)&context->fs_base);
-
+#endif
     // program counter: return address
     context->pc = *(((uint64_t*)rsp));
 
@@ -960,6 +964,7 @@ __asm__(".globl save_native_context_indirect_call\n"
         //
         ".cfi_endproc");
 
+#if 0
 __asm__(".globl save_native_context_safe_syscall\n"
         //
         ".type func, @function\n"
@@ -981,6 +986,7 @@ __asm__(".globl save_native_context_safe_syscall\n"
         "ret\n\t"
         //
         ".cfi_endproc");
+#endif
 
 static void save_emulated_context(CPUX86State* state, int skip_eip)
 {
@@ -1003,8 +1009,9 @@ static void save_emulated_context(CPUX86State* state, int skip_eip)
         emulated_cpu_context->seg[i] = state->segs[i].selector;
 
     // fs base
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     emulated_cpu_context->fs_base = state->segs[R_FS].base;
-
+#endif
     // pc
     if (!skip_eip)
         emulated_cpu_context->pc = state->eip;
@@ -1030,7 +1037,9 @@ static void restore_emulated_context(CpuContext* context, CPUX86State* state)
         state->segs[i].selector = context->seg[i];
 
     // fs base
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     state->segs[R_FS].base = context->fs_base;
+#endif
 }
 
 extern void restore_native_context(CpuContext* context, uint64_t target);
@@ -1101,7 +1110,7 @@ __asm__(".globl dummy_runtime_plt_stub\n\t"
         "movabsq $0xCAFECAFECAFECAFE, %rdi\n"
         "pushq %rdi\n"
         "movq %rsp, %rdi\n\t"
-        "call save_native_context_safe\n\t"
+        "call save_native_context_safe\n\t" // this is replaced by runtime_function_handler
         "leaq 56(%rsp), %rsp\n\t"
         "ret"
         //
@@ -1116,6 +1125,23 @@ void return_handler_from_emulation(void)
 }
 #endif
 
+static inline void get_time(struct timespec* tp)
+{
+    clock_gettime(CLOCK_MONOTONIC, tp);
+}
+
+static inline uint64_t get_diff_time_microsec(struct timespec* start,
+                                              struct timespec* end)
+{
+    uint64_t r = (end->tv_sec - start->tv_sec) * 1000000000;
+    r += (end->tv_nsec - start->tv_nsec);
+    return (r / 1000);
+}
+
+uint64_t total_emulation = 0;
+struct timespec t1_start;
+struct timespec t_emulation_end;
+struct timespec t_native_end;
 void switch_to_emulated(int plt_entry)
 {
     task_t* task = get_task();
@@ -1129,9 +1155,11 @@ void switch_to_emulated(int plt_entry)
     assert(task->depth >= 0 && task->depth <= MAX_DEPTH);
     task->return_addrs[task->depth - 1] = *(ret_addr);
 
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
+#endif
 
     *(ret_addr) = RETURN_FROM_EMULATION_SENTINEL;
     _sym_concretize_memory((uint8_t*)ret_addr, sizeof(void*));
@@ -1194,7 +1222,9 @@ void switch_to_emulated(int plt_entry)
     }
 
     _sym_notify_call(RETURN_FROM_EMULATION_SENTINEL);
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     arch_prctl(ARCH_SET_FS, base);
+#endif
 
     // return into QEMU
 #if 0
@@ -1222,16 +1252,19 @@ void switch_back_emulation(void)
     restore_emulated_context(task->native_context, task->emulated_state);
     task->emulated_state->eip = task->native_context->pc;
 
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
+#endif
     printf("[depth=%ld] JUMPING BACK TO %lx rsp=%lx\n", task->depth,
            task->emulated_state->eip, task->emulated_state->regs[SLOT_RSP]);
 
     // FIXME: is this needed?
     // _sym_notify_ret(task->emulated_state->eip);
-
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     arch_prctl(ARCH_SET_FS, base);
+#endif
 
     restore_qemu_context(task->qemu_context);
 }
@@ -1257,9 +1290,11 @@ void switch_emulation_indirect_call(void)
     *(ret_addr)                         = RETURN_FROM_EMULATION_SENTINEL;
     _sym_concretize_memory((uint8_t*)ret_addr, sizeof(void*));
 
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
+#endif
     printf("[depth=%ld] EMULATED INDIRECT CALL %lx rsp=%lx rdi=%lx *rsp=%lx\n",
            task->depth, task->emulated_state->eip,
            task->emulated_state->regs[SLOT_RSP],
@@ -1270,8 +1305,9 @@ void switch_emulation_indirect_call(void)
     for(int i = 0; i < SLOT_GPR_END; i++)
         printf("R[%d] = %lx\n", i, task->emulated_state->regs[i]);
 #endif
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     arch_prctl(ARCH_SET_FS, base);
-
+#endif
     restore_qemu_context(task->qemu_context);
 }
 
@@ -1293,18 +1329,19 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
 
 struct timespec t_init;
 
-static inline void get_time(struct timespec* tp)
-{
-    clock_gettime(CLOCK_MONOTONIC, tp);
+static void switch_fs_to_native(void) {
+    task_t* task = get_task();
+    arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
 }
 
-static inline uint64_t get_diff_time_microsec(struct timespec* start,
-                                              struct timespec* end)
-{
-    uint64_t r = (end->tv_sec - start->tv_sec) * 1000000000;
-    r += (end->tv_nsec - start->tv_nsec);
-    return (r / 1000);
+static void switch_fs_to_emulation(void) {
+    task_t* task = get_task();
+    arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
 }
+
+typedef void (*switch_fs_t)(void);
+extern switch_fs_t switch_fs_to_native_ptr;
+extern switch_fs_t switch_fs_to_emulation_ptr;
 
 //__thread
 int  hybrid_init_done = 0;
@@ -1323,6 +1360,8 @@ void hybrid_init(CPUState *cpu)
     if (getenv("SYMFUSION_PATH_TRACER"))
         hybrid_trace_mode = 1;
 
+    // hybrid_trace_mode = 0;
+
     char* res = getenv("HYBRID_CONF_FILE");
     if (res)
         parse_config_file(res);
@@ -1332,6 +1371,9 @@ void hybrid_init(CPUState *cpu)
     hybrid_new_task(tid);
 
     _sym_wrap_indirect_call_set_trumpoline((uint64_t)check_indirect_target);
+
+    switch_fs_to_native_ptr = switch_fs_to_native;
+    switch_fs_to_emulation_ptr = switch_fs_to_emulation;
 
     assert(start_addr);
     hybrid_init_done = 1;
@@ -1469,33 +1511,43 @@ static uint64_t get_runtime_function_addr(char* name)
     RUNTIME_FN_PTR(name, _sym_initialize);
     RUNTIME_FN_PTR(name, _sym_finalize);
     RUNTIME_FN_PTR(name, _sym_build_insert);
+    RUNTIME_FN_PTR(name, _sym_switch_fs_to_native);
+    RUNTIME_FN_PTR(name, _sym_switch_fs_to_emulation);
 
     printf("Add me:\n\t%s\n", name);
     tcg_abort();
     return 0;
 }
 
+#if 0
 static uint64_t runtime_function_handler(runtime_stub_args_t* args)
 {
-    task_t*  task = get_task();
+#if !HYBRID_UPDATE_FSBASE_DURING_SWITCH
+    // we now directly jump into the runtime function
+    abort();
+#else
+    task_t*  task = &tasks[0]; // get_task();
     uint64_t base;
     arch_prctl(ARCH_GET_FS, (uint64_t)&base);
     arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
     // printf("FN %lx: arg1=%lx, arg2=%lx, arg3=%lx\n", args->addr, args->arg1,
     // args->arg2, args->arg3);
+    // if (args->addr == 0)
+    //    tcg_abort();
+#endif
 
-    if (args->addr == 0)
-        tcg_abort();
     uint64_t (*f)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t, uint64_t) =
         (uint64_t(*)(uint64_t, uint64_t, uint64_t, uint64_t, uint64_t,
                      uint64_t))args->addr;
 
     uint64_t res = f(args->arg1, args->arg2, args->arg3, args->arg4, args->arg5,
                      args->arg6);
-
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
     arch_prctl(ARCH_SET_FS, base);
+#endif
     return res;
 }
+#endif
 
 static inline TCGTemp* tcg_find_temp_arch_reg(const char* reg_name)
 {
@@ -1542,15 +1594,66 @@ void* get_temp_expr(const char* temp_name)
     return *ret_val_expr;
 }
 
+static uint64_t total_pre_main = 0;
+static uint64_t total_native = 0;
+void finalize_execution_stats(void);
+void finalize_execution_stats(void) {
+    struct timespec t1;
+    get_time(&t1);
+    uint64_t delta = get_diff_time_microsec(&t_init, &t1);
+    fprintf(stderr, "TOTAL RUNNING TIME: %lu\n", delta);
+    fprintf(stderr, "A) TOTAL EMULATION: %lu\n", total_emulation);
+    fprintf(stderr, "B) TOTAL NATIVE: %lu\n", total_native);
+    fprintf(stderr, "C) TOTAL PRE MAIN: %lu\n", total_pre_main);
+    fprintf(stderr, "SUM A + B + C: %lu\n", total_pre_main + total_native + total_emulation);
+}
+
+void finalize_execution(void);
+#if 1
+__asm__(
+    ".globl finalize_execution\n"
+    //
+    ".type func, @function\n"
+    //
+    "finalize_execution:"
+    "pushq %rax\n"
+    "pushq %rax\n"
+    "call finalize_execution_stats\n"
+    "call _sym_finalize\n"
+    "popq %rdi\n"
+    "movq $231, %rax\n"
+    "syscall\n"
+    // "call exit\n"
+    //
+);
+#else
+void finalize_execution(void) {
+    struct timespec t1;
+    get_time(&t1);
+    uint64_t delta = get_diff_time_microsec(&t_init, &t1);
+    fprintf(stderr, "Total running time: %lu\n", delta);
+    exit(0);
+}
+#endif
+
 void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 {
     assert(hybrid_init_done);
     reached_start = 1;
-
+#if 0
+    if (!hybrid_trace_mode)
+        exit(0);
+#endif
     task_t*     task               = get_task();
     CpuContext* native_cpu_context = task->native_context;
 
     task->emulated_state = state;
+
+    task->native_context->fs_base = state->segs[R_FS].base;
+    arch_prctl(ARCH_GET_FS, (uint64_t)&task->qemu_context->fs_base);
+
+    // printf("NATIVE FS: %lx\n", task->native_context->fs_base);
+    // printf("EMULATION FS: %lx\n", task->qemu_context->fs_base);
 
     // fprintf(stderr, "LIB: START=%lx END=%lx INDIRECT=%lx\n",
     // hybrid_start_code, hybrid_end_code, check_indirect_target); tcg_abort();
@@ -1583,6 +1686,15 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         task->return_addrs[task->depth - 1] = *(ret_addr);
 
         *(ret_addr) = (uint64_t)save_native_context_safe_back_to_emulation;
+
+    }  else if (mode == INITIAL_JUMP_INTO_NATIVE) {
+
+        uint64_t* ret_addr = (uint64_t*)task->emulated_state->regs[SLOT_RSP];
+        task->depth += 1;
+        assert(task->depth >= 0 && task->depth <= MAX_DEPTH);
+        task->return_addrs[task->depth - 1] = *(ret_addr);
+
+        *(ret_addr) = (uint64_t)finalize_execution;
     }
 
     _sym_set_emulation_mode(0);
@@ -1591,6 +1703,9 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
     // patch PLTs && syscall insns
     if (target == start_addr) {
 
+        get_time(&t_emulation_end);
+        get_time(&t_native_end);
+        get_time(&t1_start);
 #if 1
         struct timespec t0;
         get_time(&t0);
@@ -1847,7 +1962,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
                 // printf("[%s] RUNTIME PLT entry %s at %p\n", patch->name,
                 // p->name, plt);
-
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
                 memcpy(runtime_stub, dummy_runtime_plt_stub, 64);
 
                 assert(runtime_stub[8] == 0x48); // movaps opcode
@@ -1871,8 +1986,10 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                 // printf("OLD: %p - NEW: %p - RETURN_HANLDERL %p\n", plt[0],
                 // runtime_stub, return_handler_from_emulation);
 
-                plt[0] = runtime_stub;
-
+                plt[0] = (void*) runtime_stub;
+#else
+                plt[0] = (void*) get_runtime_function_addr(p->name); // runtime_stub;
+#endif
                 runtime_stubs_count++;
                 runtime_stub += 64;
                 assert(runtime_stub <
@@ -1917,13 +2034,15 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         printf("SIGLONGJMP at %lx [%lx]\n", libc_longjmp_addr[0],
                libc_base_address);
 #endif
-#if 0
+#if 1
+        uint64_t delta;
         struct timespec t1;
         get_time(&t1);
-        uint64_t delta = get_diff_time_microsec(&t0, &t1);
-        fprintf(stderr, "Setup time: %lu\n", delta / 1000);
+        // delta = get_diff_time_microsec(&t0, &t1);
+        // fprintf(stderr, "Setup time: %lu\n", delta);
         delta = get_diff_time_microsec(&t_init, &t1);
-        fprintf(stderr, "Setup time: %lu\n", delta / 1000);
+        total_pre_main = delta;
+        // fprintf(stderr, "PRE MAIN: %lu\n", delta);
 #endif
     }
 
@@ -2068,12 +2187,30 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         printf("\n[depth=%ld] Resuming native to 0x%lx [0x%lx]\n", task->depth,
                target, task->emulated_context->pc);
 
+        // printf("NATIVE FS: %lx\n", task->native_context->fs_base);
+        // printf("EMULATION FS: %lx\n", task->qemu_context->fs_base);
+
+        // uint64_t base;
+        // arch_prctl(ARCH_GET_FS, &base);
+        // printf("FSBASE: %lx\n", base);
+
         _sym_set_emulation_mode(0);
         _sym_set_concrete_mode(0);
+
+        get_time(&t_emulation_end);
+        uint64_t delta = get_diff_time_microsec(&t_native_end, &t_emulation_end);
+        total_emulation += delta;
+        printf("TOTAL EMULATION: %lu\n", total_emulation);
 
         restore_native_context(task->emulated_context, target);
 
     } else {
+
+        get_time(&t_native_end);
+        uint64_t delta = get_diff_time_microsec(&t_emulation_end, &t_native_end);
+        total_native += delta;
+        printf("TOTAL NATIVE: %lu\n", total_native);
+
 #if 0
         arch_prctl(ARCH_GET_FS, &base);
         printf("FSBASE QEMU: %lx\n", base);
@@ -2273,7 +2410,7 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
 #endif
 
 #if DEBUG_SYSCALLS
-    task_t* task = get_task();
+    // task_t* task = get_task();
 #endif
     switch (num) {
         case TARGET_NR_openat:
@@ -2450,8 +2587,9 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
 
         printf("indirect call target=%lx\n", target);
 
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
         arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
-
+#endif
         uint64_t res;
         // run in native mode
         switch (args_count) {
@@ -2603,9 +2741,13 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
             default:
                 assert(0 && "Indirect call with more than 15 arguments.");
         }
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
         arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
+#endif
         printf("indirect call target=%lx res=%lx\n", target, res);
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
         arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
+#endif
         return res;
     } else // run in emulation mode
     {
@@ -2617,18 +2759,21 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
         task->return_addrs[task->depth - 1] = target;
         assert(args_count <= 6);
 
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
         arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
-
+#endif
         save_native_context_indirect_call(
             args_count >= 1 ? args[0] : 0, args_count >= 2 ? args[1] : 0,
             args_count >= 3 ? args[2] : 0, args_count >= 4 ? args[3] : 0,
             args_count >= 5 ? args[4] : 0, args_count >= 6 ? args[5] : 0);
-
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
         arch_prctl(ARCH_SET_FS, (uint64_t)task->qemu_context->fs_base);
+#endif
         printf("RETURNED FROM EMULATION OF INDIRECT CALL: res=%lx\n",
                task->emulated_state->regs[SLOT_RAX]);
+#if HYBRID_UPDATE_FSBASE_DURING_SWITCH
         arch_prctl(ARCH_SET_FS, (uint64_t)task->native_context->fs_base);
-
+#endif
         return task->emulated_state->regs[SLOT_RAX];
     }
     tcg_abort();
@@ -2838,10 +2983,10 @@ static void forkserver_wait_tsl(CPUState *cpu, int fd) {
 
 static void forkserver_loop(CPUState *cpu) {
 
-    printf("forkserver_loop\n");
     char* pipe_name = getenv("SYMFUSION_TRACER_PIPE");
     if (pipe_name == NULL) return;
 
+    printf("forkserver_loop\n");
     forkserver_running = 1;
     rcu_disable_atfork();
 
@@ -2884,12 +3029,20 @@ static void forkserver_loop(CPUState *cpu) {
         if (pipe(t_fd) || dup2(t_fd[1], TSL_FD) < 0) exit(3);
         close(t_fd[1]);
 
+        total_native = 0;
+        total_emulation = 0;
+        total_pre_main = 0;
+        get_time(&t_native_end);
+        get_time(&t_emulation_end);
+        get_time(&t_init);
+
         child_pid = fork();
         if (child_pid < 0) exit(4);
 
         if (!child_pid) {
             /* Child process. Close descriptors and run free. */
             // printf("CHILD\n");
+            // exit(0);
             afl_fork_child = 1;
             close(t_fd[0]);
             return;
@@ -2917,6 +3070,5 @@ static void forkserver_loop(CPUState *cpu) {
 
 void forkserver(void) {
     if (forkserver_running) return;
-    printf("Starting forkserver\n");
     forkserver_loop(hybrid_cpu);
 }

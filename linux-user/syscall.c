@@ -5682,7 +5682,7 @@ static void *clone_func(void *arg)
     pthread_mutex_unlock(&clone_lock);
 
     /* HYBRID */
-    hybrid_set_sigill_handler();
+    // hybrid_set_sigill_handler();
     /* HYBRID */
 
     cpu_loop(env);
