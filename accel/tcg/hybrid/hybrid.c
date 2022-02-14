@@ -2409,8 +2409,8 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
     }
 #endif
 
-#if DEBUG_SYSCALLS
-    // task_t* task = get_task();
+#if DEBUG_SYSCALLS && HYBRID_DBG_PRINT
+    task_t* task = get_task();
 #endif
     switch (num) {
         case TARGET_NR_openat:
@@ -2983,7 +2983,7 @@ static void forkserver_wait_tsl(CPUState *cpu, int fd) {
 
 static void forkserver_loop(CPUState *cpu) {
 
-    char* pipe_name = getenv("SYMFUSION_TRACER_PIPE");
+    char* pipe_name = getenv("SYMFUSION_FORKSERVER_PIPE");
     if (pipe_name == NULL) return;
 
     printf("forkserver_loop\n");
@@ -2998,12 +2998,18 @@ static void forkserver_loop(CPUState *cpu) {
         exit(1);
     }
 
-    char* f_done = getenv("SYMFUSION_PATH_TRACER_FILE_DONE");
+    char* f_done = getenv("SYMFUSION_PATH_FORKSERVER_DONE");
     if (f_done == NULL) {
-        printf("SYMFUSION_PATH_TRACER_FILE_DONE was not set\n");
+        printf("SYMFUSION_PATH_FORKSERVER_DONE was not set\n");
         abort();
     }
-        
+
+    char* f_pid = getenv("SYMFUSION_PATH_FORKSERVER_PID");
+    if (f_pid == NULL) {
+        printf("SYMFUSION_PATH_FORKSERVER_PID was not set\n");
+        abort();
+    }
+
     char buf[16];
 
     afl_forksrv_pid = getpid();
@@ -3011,6 +3017,7 @@ static void forkserver_loop(CPUState *cpu) {
     /* All right, let's await orders... */
 
     struct timespec sleep;
+    sleep.tv_sec = 0;
     sleep.tv_nsec = 10000;
     while (1) {
 
@@ -3053,6 +3060,10 @@ static void forkserver_loop(CPUState *cpu) {
 
         close(TSL_FD);
 
+        FILE* fp = fopen(f_pid, "w");
+        fwrite(&child_pid, sizeof(child_pid), 1, fp);
+        fclose(fp);
+
         /* Collect translation requests until child dies and closes the pipe. */
 
         forkserver_wait_tsl(cpu, t_fd[0]);
@@ -3061,7 +3072,7 @@ static void forkserver_loop(CPUState *cpu) {
 
         if (waitpid(child_pid, &status, 0) < 0) exit(6);
 
-        FILE* fp = fopen(f_done, "w");
+        fp = fopen(f_done, "w");
         status = WEXITSTATUS(status);
         fwrite(&status, sizeof(status), 1, fp);
         fclose(fp);

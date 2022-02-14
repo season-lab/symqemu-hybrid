@@ -114,6 +114,8 @@
 
 /* HYBRID */
 #include "accel/tcg/hybrid/hybrid.h"
+void _sym_finalize(void);
+void finalize_execution_stats(void);
 
 #ifndef CLONE_IO
 #define CLONE_IO                0x80000000      /* Clone io context */
@@ -7279,7 +7281,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
 
     switch(num) {
     case TARGET_NR_exit:
-        printf("EXIT\n");
+        finalize_execution_stats();
+        _sym_finalize();
         /* In old applications this may be used to implement _exit(2).
            However in threaded applictions it is used for thread termination,
            and _exit_group is used for application termination.
@@ -9290,7 +9293,8 @@ static abi_long do_syscall1(void *cpu_env, int num, abi_long arg1,
 #ifdef __NR_exit_group
         /* new thread calls */
     case TARGET_NR_exit_group:
-        fprintf(stderr, "EXIT\n");
+        finalize_execution_stats();
+        _sym_finalize();
         preexit_cleanup(cpu_env, arg1);
         return get_errno(exit_group(arg1));
 #endif
