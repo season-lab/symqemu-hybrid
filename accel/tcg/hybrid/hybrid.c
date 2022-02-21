@@ -2983,18 +2983,25 @@ static void forkserver_wait_tsl(CPUState *cpu, int fd) {
 
 static void forkserver_loop(CPUState *cpu) {
 
-    char* pipe_name = getenv("SYMFUSION_FORKSERVER_PIPE");
-    if (pipe_name == NULL) return;
+    char* pipe_name_read = getenv("SYMFUSION_FORKSERVER_PIPE_READ");
+    char* pipe_name_write = getenv("SYMFUSION_FORKSERVER_PIPE_WRITE");
+    if (pipe_name_read == NULL || pipe_name_write == NULL) return;
 
     printf("forkserver_loop\n");
     forkserver_running = 1;
     rcu_disable_atfork();
 
-    printf("Opening pipe: %s\n", pipe_name);
+    printf("Opening pipe: %s\n", pipe_name_read);
+    int fd_pipe_read = open(pipe_name_read, O_RDONLY);
+    if (fd_pipe_read <= 0) {
+        printf("Cannot open pipe: %s\n", pipe_name_read);
+        exit(1);
+    }
 
-    int fd_pipe = open(pipe_name, O_RDONLY);
-    if (fd_pipe <= 0) {
-        printf("Cannot open pipe: %s\n", pipe_name);
+    printf("Opening pipe: %s\n", pipe_name_write);
+    int fd_pipe_write = open(pipe_name_write, O_WRONLY);
+    if (fd_pipe_write <= 0) {
+        printf("Cannot open pipe: %s\n", pipe_name_write);
         exit(1);
     }
 
@@ -3024,7 +3031,7 @@ static void forkserver_loop(CPUState *cpu) {
         pid_t child_pid;
         int status, t_fd[2];
 
-        int r = read(fd_pipe, buf, 1);
+        int r = read(fd_pipe_read, buf, 1);
         if (r != 1) {
             nanosleep(&sleep, NULL);
             continue;
@@ -3076,6 +3083,8 @@ static void forkserver_loop(CPUState *cpu) {
         status = WEXITSTATUS(status);
         fwrite(&status, sizeof(status), 1, fp);
         fclose(fp);
+
+        r = write(fd_pipe_write, buf, 1);
     }
 }
 
