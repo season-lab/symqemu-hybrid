@@ -1397,6 +1397,7 @@ int         strncmp_symbolized(const char* s1, const char* s2, size_t n);
 int         strcmp_symbolized(const char* s1, const char* s2);
 int         bcmp_symbolized(const void* s1, const void* s2, size_t n);
 int         strlen_symbolized(const void* s1);
+void*       memset_symbolized(void *s, int c, size_t n);
 
 static uint64_t get_runtime_function_addr(char* name)
 {
@@ -1473,6 +1474,7 @@ static uint64_t get_runtime_function_addr(char* name)
     RUNTIME_FN_PTR(name, strchr_symbolized);
     RUNTIME_FN_PTR(name, strcmp_symbolized);
     RUNTIME_FN_PTR(name, strlen_symbolized);
+    RUNTIME_FN_PTR(name, memset_symbolized);
     RUNTIME_FN_PTR(name, _sym_build_bits_to_float);
     RUNTIME_FN_PTR(name, _sym_build_fp_mul);
     RUNTIME_FN_PTR(name, _sym_build_float);
