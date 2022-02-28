@@ -1398,6 +1398,7 @@ int         strcmp_symbolized(const char* s1, const char* s2);
 int         bcmp_symbolized(const void* s1, const void* s2, size_t n);
 int         strlen_symbolized(const void* s1);
 void*       memset_symbolized(void *s, int c, size_t n);
+uint32_t    ntohl_symbolized(uint32_t netlong);
 
 static uint64_t get_runtime_function_addr(char* name)
 {
@@ -1475,6 +1476,7 @@ static uint64_t get_runtime_function_addr(char* name)
     RUNTIME_FN_PTR(name, strcmp_symbolized);
     RUNTIME_FN_PTR(name, strlen_symbolized);
     RUNTIME_FN_PTR(name, memset_symbolized);
+    RUNTIME_FN_PTR(name, ntohl_symbolized);
     RUNTIME_FN_PTR(name, _sym_build_bits_to_float);
     RUNTIME_FN_PTR(name, _sym_build_fp_mul);
     RUNTIME_FN_PTR(name, _sym_build_float);
@@ -2448,8 +2450,6 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                 printf("[%lu] SYSCALL: close(%d)\n", task->tid, fd);
 #endif
                 if (fd >= MAX_MMAP_FILES)
-                    tcg_abort();
-                if (open_files[fd].state != FILE_STATE_OPEN)
                     tcg_abort();
                 open_files[fd].state = FILE_STATE_INVALID;
                 open_files[fd].name  = NULL;
