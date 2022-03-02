@@ -2578,11 +2578,13 @@ uint64_t check_indirect_target(uint64_t target, uint64_t* args,
         printf("VALUE %lx AT %lx\n", 0x40007feae0, 0x40007fead0);
     // assert(*a != 0x40007feae0);
 #endif
+
     task_t* task = get_task();
     if (reached_start &&
         ((target >= hybrid_start_code && target <= hybrid_end_code) ||
          (target >= hybrid_start_lib_1 && target <= hybrid_end_lib_1) ||
-         (target >= hybrid_start_lib_2 && target <= hybrid_end_lib_2))) {
+         (target >= hybrid_start_lib_2 && target <= hybrid_end_lib_2) ||
+         is_hooked_plt_entry(target))) {
 
         if (args == NULL) // this was a check on the target
             return 0;

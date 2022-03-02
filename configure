@@ -5093,6 +5093,7 @@ if test -e "${symcc_source}/../sym_helpers/libsymhelpers.so"; then
     sym_helpers="yes"
 else
     sym_helpers="no"
+    print_error "SymHelpers not found" "${symcc_source}/../sym_helpers/libsymhelpers.so"
 fi
 
 ##########################################
