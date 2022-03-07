@@ -90,7 +90,8 @@ extern abi_ulong hybrid_start_lib_2, hybrid_end_lib_2;
                                      (target >= hybrid_start_lib_1 &&          \
                                       target <= hybrid_end_lib_1) ||           \
                                      (target >= hybrid_start_lib_2 &&          \
-                                      target <= hybrid_end_lib_2))) {          \
+                                      target <= hybrid_end_lib_2) ||           \
+                                      is_hooked_plt_entry(target))) {          \
             switch_to_native(target, state, EMULATION_TO_NATIVE);              \
             *flag = 1;                                                         \
         }                                                                      \
