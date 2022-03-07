@@ -2110,6 +2110,9 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
             assert(native_cpu_context.gpr[SLOT_RSP] + 8 == emulated_cpu_context.gpr[SLOT_RSP]);
         }
 #endif
+        printf("\n[depth=%ld] Resuming native to 0x%lx [0x%lx]\n", task->depth,
+            target, task->emulated_context->pc);
+
         if (mode == RETURN_FROM_EMULATION) {
             // symbolic return value
 
@@ -2188,8 +2191,8 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         get_time(&t1);
         fprintf(stderr, "Time: %ld\n", get_diff_time_microsec(&t_init, &t1) / 1000);
 #endif
-        printf("\n[depth=%ld] Resuming native to 0x%lx [0x%lx]\n", task->depth,
-               target, task->emulated_context->pc);
+        // NOTE: any printf() may overide xmm0
+        //       which could be used for the return value!
 
         // printf("NATIVE FS: %lx\n", task->native_context->fs_base);
         // printf("EMULATION FS: %lx\n", task->qemu_context->fs_base);
@@ -2204,7 +2207,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         get_time(&t_emulation_end);
         uint64_t delta = get_diff_time_microsec(&t_native_end, &t_emulation_end);
         total_emulation += delta;
-        printf("TOTAL EMULATION: %lu\n", total_emulation);
+        // printf("TOTAL EMULATION: %lu\n", total_emulation);
 
         restore_native_context(task->emulated_context, target);
 
@@ -2213,7 +2216,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         get_time(&t_native_end);
         uint64_t delta = get_diff_time_microsec(&t_emulation_end, &t_native_end);
         total_native += delta;
-        printf("TOTAL NATIVE: %lu\n", total_native);
+        // printf("TOTAL NATIVE: %lu\n", total_native);
 
 #if 0
         arch_prctl(ARCH_GET_FS, &base);
@@ -2481,6 +2484,8 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                     // instrumented...
 
                     printf("LIB: %s,%lx,%lx\n", name, retval, retval + arg2);
+
+                    _sym_add_exec_map(retval, retval + arg2, name);
 
                     if ((strcmp(name, "libc++.so.1") == 0 ||
                          strcmp(name, "libc++abi.so.1") == 0) &&
