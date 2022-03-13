@@ -126,11 +126,12 @@ static GSList* syscall_patches          = NULL;
 static GSList* runtime_patches          = NULL;
 static GSList* plt_aliases              = NULL;
 static char*   libc_path                = NULL;
+static char*   libpthread_path          = NULL;
 uint64_t       libc_concrete_funcs[256] = {0};
 uint64_t       libc_models[256]         = {0};
 
-uint64_t libc_setjmp_addr[2]  = {0};
-uint64_t libc_longjmp_addr[2] = {0};
+uint64_t libc_setjmp_addr[3]  = {0};
+uint64_t libc_longjmp_addr[3] = {0};
 
 typedef struct {
     char*   name;
@@ -252,6 +253,25 @@ static int parse_config_file(char* file)
         printf("__libc_longjmp at 0x%s\n", res);
         uint64_t offset      = (uint64_t)strtoull(res, NULL, 16);
         libc_longjmp_addr[1] = offset;
+    }
+
+    // libpthread
+    res = g_key_file_get_value(gkf, "libpthread", "path", NULL);
+    if (res) {
+        libpthread_path = strdup(res);
+        printf("LIBPTHREAD PATH: %s\n", libpthread_path);
+    }
+    res = g_key_file_get_value(gkf, "libpthread", "longjmp@GLIBC_2.2.5", NULL);
+    if (res) {
+        printf("longjmp@GLIBC_2.2.5 in libpthread at 0x%s\n", res);
+        uint64_t offset      = (uint64_t)strtoull(res, NULL, 16);
+        libc_longjmp_addr[2] = offset;
+    }
+    res = g_key_file_get_value(gkf, "libpthread", "_setjmp@plt", NULL);
+    if (res) {
+        printf("_setjmp@plt in libpthread at 0x%s\n", res);
+        uint64_t offset      = (uint64_t)strtoull(res, NULL, 16);
+        libc_setjmp_addr[2] = offset;
     }
 
     {
@@ -1171,7 +1191,8 @@ void switch_to_emulated(int plt_entry)
     _sym_print_stack();
 #endif
     if (libc_setjmp_addr[0] == task->emulated_state->eip ||
-        libc_setjmp_addr[1] == task->emulated_state->eip) {
+        libc_setjmp_addr[1] == task->emulated_state->eip ||
+        libc_setjmp_addr[2] == task->emulated_state->eip) {
         assert(task->long_jumps_used < MAX_DEPTH - 1);
 
         int index    = 0;
@@ -1202,7 +1223,8 @@ void switch_to_emulated(int plt_entry)
             task->long_jumps_used += 1;
         }
     } else if (libc_longjmp_addr[0] == task->emulated_state->eip ||
-               libc_longjmp_addr[1] == task->emulated_state->eip) {
+               libc_longjmp_addr[1] == task->emulated_state->eip ||
+               libc_longjmp_addr[2] == task->emulated_state->eip) {
         int index = task->long_jumps_used - 1;
         while (index >= 0) {
             if (task->longjmp_arg[index] ==
@@ -2037,6 +2059,21 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
         libc_longjmp_addr[1] += libc_base_address;
         printf("SIGLONGJMP at %lx [%lx]\n", libc_longjmp_addr[0],
                libc_base_address);
+
+        // libpthread
+        uint64_t libpthread_base_address = 0;
+        next_mmaped_file  = mmaped_files;
+        while (next_mmaped_file != NULL) {
+            mmap_file_t* mmaped_file = (mmap_file_t*)next_mmaped_file->data;
+            next_mmaped_file         = g_slist_next(next_mmaped_file);
+
+            if (strcmp(mmaped_file->name, libpthread_path) == 0) {
+                libpthread_base_address = mmaped_file->addr;
+                break;
+            }
+        }
+        libc_setjmp_addr[2] += libpthread_base_address;
+        libc_longjmp_addr[2] += libpthread_base_address;
 #endif
 #if 1
         uint64_t delta;
@@ -2996,11 +3033,11 @@ static void forkserver_loop(CPUState *cpu) {
     char* pipe_name_write = getenv("SYMFUSION_FORKSERVER_PIPE_WRITE");
     if (pipe_name_read == NULL || pipe_name_write == NULL) return;
 
-    printf("forkserver_loop\n");
+    fprintf(stderr, "forkserver_loop\n");
     forkserver_running = 1;
     rcu_disable_atfork();
 
-    printf("Opening pipe: %s\n", pipe_name_read);
+    fprintf(stderr, "Opening pipe: %s\n", pipe_name_read);
     int fd_pipe_read = open(pipe_name_read, O_RDONLY);
     if (fd_pipe_read <= 0) {
         printf("Cannot open pipe: %s\n", pipe_name_read);
@@ -3042,8 +3079,10 @@ static void forkserver_loop(CPUState *cpu) {
 
         int r = read(fd_pipe_read, buf, 1);
         if (r != 1) {
-            nanosleep(&sleep, NULL);
-            continue;
+            // fprintf(stderr, "Trying to read from pipe...\n");
+            // nanosleep(&sleep, NULL);
+            // continue;
+            break;
         }
 
         /* Establish a channel with child to grab translation commands. We'll
@@ -3089,7 +3128,8 @@ static void forkserver_loop(CPUState *cpu) {
         if (waitpid(child_pid, &status, 0) < 0) exit(6);
 
         fp = fopen(f_done, "w");
-        status = WEXITSTATUS(status);
+        status = WIFSIGNALED(status) ? WTERMSIG(status) : WEXITSTATUS(status);
+        // fprintf(stderr, "CHILD STATUS: %d\n", status);
         fwrite(&status, sizeof(status), 1, fp);
         fclose(fp);
 
