@@ -692,6 +692,7 @@ void HELPER(sym_notify_return)(uint64_t return_address)
 
 void HELPER(sym_notify_block)(uint64_t block_id)
 {
+    // _sym_debug_reg();
     _sym_notify_basic_block(block_id);
 }
 

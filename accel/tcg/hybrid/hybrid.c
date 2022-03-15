@@ -1577,7 +1577,7 @@ static uint64_t runtime_function_handler(runtime_stub_args_t* args)
 
 static inline TCGTemp* tcg_find_temp_arch_reg(const char* reg_name)
 {
-    for (int i = 0; i < TCG_TARGET_NB_REGS; i++) {
+    for (int i = 0; i < TCG_TARGET_NB_REGS * 2; i++) {
         TCGTemp* t = &tcg_ctx->temps[i];
         if (t->fixed_reg)
             continue; // not a register
@@ -2400,6 +2400,7 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
         // we reset symbolically the XMM regs...
         for (int i = 0; i < 8; i++) {
+            // printf("XMM[%d] = %lx %lx\n", i, task->emulated_state->xmm_regs[i]._q_ZMMReg[0], task->emulated_state->xmm_regs[i]._q_ZMMReg[1]);
             _sym_concretize_memory((uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[0], 8);
             _sym_concretize_memory((uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[1], 8);
         }
@@ -2589,6 +2590,23 @@ void hybrid_syscall(uint64_t retval, uint64_t num, uint64_t arg1, uint64_t arg2,
                    retval);
 #endif
             _sym_concretize_memory((uint8_t*)arg1, sizeof(struct sysinfo));
+            break;
+        }
+
+        case TARGET_NR_fstat: {
+#if DEBUG_SYSCALLS
+            printf("[%lu] SYSCALL: fstat(%ld, %lx) = %ld\n", task->tid, arg1, arg2,
+                   retval);
+#endif
+            _sym_concretize_memory((uint8_t*)arg2, sizeof(struct stat));
+            break;
+        }
+
+        case TARGET_NR_read: {
+#if DEBUG_SYSCALLS
+            printf("[%lu] SYSCALL: read(%ld, %lx, %ld) = %ld\n", task->tid, arg1, arg2, arg3,
+                   retval);
+#endif
             break;
         }
 
@@ -2839,6 +2857,7 @@ void concretize_args(uint64_t target, CPUX86State* emulated_state, task_t* task)
         if (libc_concrete_funcs[i] == 0)
             break;
         if (libc_concrete_funcs[i] == target) {
+            // printf("LIBC FN ID=%d\n", i);
             found = 1;
             break;
         }
@@ -3128,7 +3147,10 @@ static void forkserver_loop(CPUState *cpu) {
         if (waitpid(child_pid, &status, 0) < 0) exit(6);
 
         fp = fopen(f_done, "w");
-        status = WIFSIGNALED(status) ? WTERMSIG(status) : WEXITSTATUS(status);
+        if (WIFSIGNALED(status))
+            status = WTERMSIG(status) << 16;
+        else
+            status = WEXITSTATUS(status);
         // fprintf(stderr, "CHILD STATUS: %d\n", status);
         fwrite(&status, sizeof(status), 1, fp);
         fclose(fp);
@@ -3140,4 +3162,20 @@ static void forkserver_loop(CPUState *cpu) {
 void forkserver(void) {
     if (forkserver_running) return;
     forkserver_loop(hybrid_cpu);
+}
+
+void _sym_debug_reg(void);
+void _sym_debug_reg(void) {
+#if 0
+    task_t*     task               = get_task();
+    if (task) {
+        const char* reg_name = "r14";
+        TCGTemp* treg = tcg_find_temp_arch_reg(reg_name);
+        if (treg && task->emulated_state) {
+            uint64_t** reg = (uint64_t**)((uint64_t)treg->mem_offset +
+                                                (uint64_t)task->emulated_state);
+            printf("%s: %lx\n", reg_name, (uint64_t)*reg);
+        }
+    }
+#endif
 }
