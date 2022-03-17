@@ -2346,7 +2346,25 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                         if (expr) {
                             size_t current_bits = _sym_bits_helper(expr);
                             if (current_bits < 64) {
+#if HYBRID_DBG_CONSISTENCY_CHECK
+                                // we do not know how to extend properly
+                                // however we need to get it consistent
+                                // with the concrete state only for
+                                // consistency checks. For other cases,
+                                // we expect soon to hit an extract
+                                // and thus work only on the original
+                                // bits from the expression.
+                                const int arg_regs_id[] = {SLOT_RDI, SLOT_RSI, SLOT_RDX,
+                                                   SLOT_RCX, SLOT_R8,  SLOT_R9};
+                                int sign = task->emulated_state
+                                                ->regs[arg_regs_id[int_arg_count]] >> 32;
+                                if (sign)
+                                    expr = _sym_build_sext(expr, 64 - current_bits);
+                                else
+                                    expr = _sym_build_zext(expr, 64 - current_bits);
+#else
                                 expr = _sym_build_zext(expr, 64 - current_bits);
+#endif
                             }
                             printf("%s: %s\n", arg_regs[int_arg_count],
                                    _sym_expr_to_string(expr));
@@ -2377,13 +2395,10 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                         (arg_stack_index + 1) * 8;
                     if (expr) {
                         size_t current_bits = _sym_bits_helper(expr);
-                        if (current_bits < 64) {
-                            expr = _sym_build_zext(expr, 64 - current_bits);
-                        }
                         // const char *s_expr = _sym_expr_to_string(expr);
                         // printf("stack_arg[%d]: %s\n", arg_stack_index,
                         // s_expr);
-                        _sym_write_memory(NULL, (uint8_t*)arg_stack_addr, 8, expr, 1, *((uint64_t*)arg_stack_addr));
+                        _sym_write_memory(NULL, (uint8_t*)arg_stack_addr, current_bits / 8, expr, 1, (*((uint64_t*)arg_stack_addr)) & ((2LU << ((current_bits)-1)) - 1LU));
                     } else {
                         _sym_concretize_memory((uint8_t*)arg_stack_addr, 8);
                     }
@@ -2391,6 +2406,22 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
                 int_arg_count++;
             }
         }
+#if HYBRID_DBG_CONSISTENCY_CHECK
+        // clear other registers used for parameters...
+        // they could be moved around by variadic functions
+        // making to fail our consistency checks
+        for (int i = int_arg_count; i < 6; i++) {
+            TCGTemp* arg = NULL;
+            if (!hybrid_trace_mode)
+                arg = tcg_find_temp_arch_reg(arg_regs[i]);
+            if (arg) {
+                uint64_t** arg_expr =
+                    (uint64_t**)((uint64_t)arg->mem_offset +
+                                    (uint64_t)task->emulated_state);
+                *arg_expr = NULL;
+            }
+        }
+#endif
 
         // RAX is used in variadic functions for # of FP args
         TCGTemp*   arg      = tcg_find_temp_arch_reg("rax_expr");
@@ -3122,8 +3153,11 @@ static void forkserver_loop(CPUState *cpu) {
 
         if (!child_pid) {
             /* Child process. Close descriptors and run free. */
-            // printf("CHILD\n");
-            // exit(0);
+            
+            FILE* fp = fopen(f_pid, "w");
+            fwrite(&child_pid, sizeof(child_pid), 1, fp);
+            fclose(fp);
+
             afl_fork_child = 1;
             close(t_fd[0]);
             return;
@@ -3134,10 +3168,6 @@ static void forkserver_loop(CPUState *cpu) {
 
         close(TSL_FD);
 
-        FILE* fp = fopen(f_pid, "w");
-        fwrite(&child_pid, sizeof(child_pid), 1, fp);
-        fclose(fp);
-
         /* Collect translation requests until child dies and closes the pipe. */
 
         forkserver_wait_tsl(cpu, t_fd[0]);
@@ -3146,7 +3176,7 @@ static void forkserver_loop(CPUState *cpu) {
 
         if (waitpid(child_pid, &status, 0) < 0) exit(6);
 
-        fp = fopen(f_done, "w");
+        FILE* fp = fopen(f_done, "w");
         if (WIFSIGNALED(status))
             status = WTERMSIG(status) << 16;
         else
@@ -3166,15 +3196,19 @@ void forkserver(void) {
 
 void _sym_debug_reg(void);
 void _sym_debug_reg(void) {
-#if 0
+    abort();
+#if 1
     task_t*     task               = get_task();
     if (task) {
-        const char* reg_name = "r14";
+        const char* reg_name = "rsp";
         TCGTemp* treg = tcg_find_temp_arch_reg(reg_name);
         if (treg && task->emulated_state) {
             uint64_t** reg = (uint64_t**)((uint64_t)treg->mem_offset +
                                                 (uint64_t)task->emulated_state);
-            printf("%s: %lx\n", reg_name, (uint64_t)*reg);
+            // printf("%s: %lx\n", reg_name, (uint64_t)*reg);
+            uint8_t* start = ((uint8_t*)*reg) - 1024;
+            _sym_concretize_memory(start, 0x1000);
+            // printf("Concretizing [%p, %p]\n", start, start + 1024);
         }
     }
 #endif
