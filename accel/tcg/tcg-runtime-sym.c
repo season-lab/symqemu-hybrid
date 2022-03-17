@@ -311,7 +311,7 @@ void *HELPER(sym_bswap)(void *expr, uint64_t length)
 static void *sym_load_guest_internal(CPUArchState *env,
                                      target_ulong addr, void *addr_expr,
                                      uint64_t load_length, uint8_t result_length,
-                                     target_ulong mmu_idx)
+                                     target_ulong mmu_idx, uint8_t sign)
 {
 #if 1
     /* Try an alternative address */
@@ -338,22 +338,28 @@ static void *sym_load_guest_internal(CPUArchState *env,
 
     if (load_length == result_length || memory_expr == NULL)
         return memory_expr;
+    else if (sign)
+        return _sym_build_sext(memory_expr, (result_length - load_length) * 8);
     else
         return _sym_build_zext(memory_expr, (result_length - load_length) * 8);
 }
 
 void *HELPER(sym_load_guest_i32)(CPUArchState *env,
                                  target_ulong addr, void *addr_expr,
-                                 uint64_t length, target_ulong mmu_idx)
+                                 uint64_t memop, target_ulong mmu_idx)
 {
-    return sym_load_guest_internal(env, addr, addr_expr, length, 4, mmu_idx);
+    uint64_t length = 1 << (memop & MO_SIZE);
+    uint64_t sign = memop & MO_SIGN;
+    return sym_load_guest_internal(env, addr, addr_expr, length, 4, mmu_idx, sign);
 }
 
 void *HELPER(sym_load_guest_i64)(CPUArchState *env,
                                  target_ulong addr, void *addr_expr,
-                                 uint64_t length, target_ulong mmu_idx)
+                                 uint64_t memop, target_ulong mmu_idx)
 {
-    return sym_load_guest_internal(env, addr, addr_expr, length, 8, mmu_idx);
+    uint64_t length = 1 << (memop & MO_SIZE);
+    uint64_t sign = memop & MO_SIGN;
+    return sym_load_guest_internal(env, addr, addr_expr, length, 8, mmu_idx, sign);
 }
 
 static void sym_store_guest_internal(CPUArchState *env,
@@ -692,7 +698,7 @@ void HELPER(sym_notify_return)(uint64_t return_address)
 
 void HELPER(sym_notify_block)(uint64_t block_id)
 {
-    // _sym_debug_reg();
+    //_sym_debug_reg();
     _sym_notify_basic_block(block_id);
 }
 

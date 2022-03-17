@@ -1803,6 +1803,22 @@ void tcg_gen_setcond_i64(TCGCond cond, TCGv_i64 ret,
     } else if (cond == TCG_COND_NEVER) {
         tcg_gen_movi_i64(ret, 0);
     } else {
+
+        // NOTE: arg{1, 2} may be the same as ret
+        //       since we look at arg{1, 2} after
+        //       the concrete operation then
+        //       we may need to preserve these args
+        TCGv_i64 copy_arg1 = arg1;
+        TCGv_i64 copy_arg2 = arg2;
+        if (ret == arg1) {
+            copy_arg1 = tcg_temp_new_i64();
+            tcg_gen_mov_i64(copy_arg1, arg1);
+        }
+        if (ret == arg1) {
+            copy_arg2 = tcg_temp_new_i64();
+            tcg_gen_mov_i64(copy_arg2, arg2);
+        }
+        
         if (TCG_TARGET_REG_BITS == 32) {
             tcg_gen_op6i_i32(INDEX_op_setcond2_i32, TCGV_LOW(ret),
                              TCGV_LOW(arg1), TCGV_HIGH(arg1),
@@ -1816,11 +1832,16 @@ void tcg_gen_setcond_i64(TCGCond cond, TCGv_i64 ret,
             TCGv_i32 cond_temp = tcg_const_i32(cond);
             gen_helper_sym_setcond_i64(
                 tcgv_i64_expr(ret), cpu_env,
-                arg1, tcgv_i64_expr(arg1),
-                arg2, tcgv_i64_expr(arg2),
+                copy_arg1, tcgv_i64_expr(arg1),
+                copy_arg2, tcgv_i64_expr(arg2),
                 cond_temp, ret);
             tcg_temp_free_i32(cond_temp);
         }
+
+        if (ret == arg1)
+            tcg_temp_free_i64(copy_arg1);
+        if (ret == arg2)
+            tcg_temp_free_i64(copy_arg2);
     }
 }
 
@@ -3310,7 +3331,7 @@ void tcg_gen_qemu_ld_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
      * operation ensures that the target address is in the TLB. */
 #endif
     if (!hybrid_trace_mode) {
-        load_size = tcg_const_i64(1 << (memop & MO_SIZE));
+        load_size = tcg_const_i64(memop);
         mmu_idx = tcg_const_i64(idx);
     
         gen_helper_sym_load_guest_i32(tcgv_i32_expr(val), cpu_env,
@@ -3432,7 +3453,7 @@ void tcg_gen_qemu_ld_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
 #endif
     if (!hybrid_trace_mode) {
         mmu_idx = tcg_const_i64(idx);
-        load_size = tcg_const_i64(1 << (memop & MO_SIZE));
+        load_size = tcg_const_i64(memop);
     
         gen_helper_sym_load_guest_i64(tcgv_i64_expr(val), cpu_env,
                                     addr, tcgv_i64_expr(addr),
