@@ -3155,8 +3155,10 @@ static void forkserver_loop(CPUState *cpu) {
             /* Child process. Close descriptors and run free. */
             
             FILE* fp = fopen(f_pid, "w");
+            child_pid = getpid();
             fwrite(&child_pid, sizeof(child_pid), 1, fp);
             fclose(fp);
+            child_pid = 0;
 
             afl_fork_child = 1;
             close(t_fd[0]);
