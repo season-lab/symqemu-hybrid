@@ -94,7 +94,11 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
         } else {
             ops->translate_insn(db, cpu);
         }
-
+#if 0
+        TCGv_i64 block = tcg_const_i64(db->num_insns);
+        gen_helper_sym_notify_block(block);
+        tcg_temp_free_i64(block);
+#endif
         /* Stop translation if translate_insn so indicated.  */
         if (db->is_jmp != DISAS_NEXT) {
             break;

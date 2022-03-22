@@ -698,7 +698,9 @@ void HELPER(sym_notify_return)(uint64_t return_address)
 
 void HELPER(sym_notify_block)(uint64_t block_id)
 {
-    //_sym_debug_reg();
+#if HYBRID_DBG_CONSISTENCY_CHECK
+    _sym_debug_reg();
+#endif
     _sym_notify_basic_block(block_id);
 }
 

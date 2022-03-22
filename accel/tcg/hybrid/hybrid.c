@@ -1539,6 +1539,7 @@ static uint64_t get_runtime_function_addr(char* name)
     RUNTIME_FN_PTR(name, _sym_build_insert);
     RUNTIME_FN_PTR(name, _sym_switch_fs_to_native);
     RUNTIME_FN_PTR(name, _sym_switch_fs_to_emulation);
+    RUNTIME_FN_PTR(name, _sym_build_value_from_memory);
 
     printf("Add me:\n\t%s\n", name);
     tcg_abort();
@@ -2374,12 +2375,10 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 #if HYBRID_DBG_CONSISTENCY_CHECK
                         const int arg_regs_id[] = {SLOT_RDI, SLOT_RSI, SLOT_RDX,
                                                    SLOT_RCX, SLOT_R8,  SLOT_R9};
-                        // fprintf(stderr, "Checking arg reg %s consistency\n",
-                        // arg_regs[int_arg_count]);
+                        // fprintf(stderr, "Checking arg reg %s consistency\n", arg_regs[int_arg_count]);
                         _sym_check_consistency(
                             expr,
-                            task->emulated_state
-                                ->regs[arg_regs_id[int_arg_count]],
+                            task->emulated_state->regs[arg_regs_id[int_arg_count]],
                             task->emulated_state->eip);
 #endif
                     }
@@ -3198,8 +3197,7 @@ void forkserver(void) {
 
 void _sym_debug_reg(void);
 void _sym_debug_reg(void) {
-    abort();
-#if 1
+#if HYBRID_DBG_CONSISTENCY_CHECK
     task_t*     task               = get_task();
     if (task) {
         const char* reg_name = "rsp";
@@ -3208,7 +3206,7 @@ void _sym_debug_reg(void) {
             uint64_t** reg = (uint64_t**)((uint64_t)treg->mem_offset +
                                                 (uint64_t)task->emulated_state);
             // printf("%s: %lx\n", reg_name, (uint64_t)*reg);
-            uint8_t* start = ((uint8_t*)*reg) - 1024;
+            uint8_t* start = ((uint8_t*)*reg) - 0x1000;
             _sym_concretize_memory(start, 0x1000);
             // printf("Concretizing [%p, %p]\n", start, start + 1024);
         }
