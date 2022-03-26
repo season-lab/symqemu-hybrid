@@ -2430,10 +2430,13 @@ void switch_to_native(uint64_t target, CPUX86State* state, switch_mode_t mode)
 
         // we reset symbolically the XMM regs...
         for (int i = 0; i < 8; i++) {
-            // printf("XMM[%d] = %lx %lx\n", i, task->emulated_state->xmm_regs[i]._q_ZMMReg[0], task->emulated_state->xmm_regs[i]._q_ZMMReg[1]);
+            // fprintf(stderr, "XMM[%d : %p] = %lx %lx\n", i, &task->emulated_state->xmm_regs[i], task->emulated_state->xmm_regs[i]._q_ZMMReg[0], task->emulated_state->xmm_regs[i]._q_ZMMReg[1]);
             _sym_concretize_memory((uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[0], 8);
             _sym_concretize_memory((uint8_t*)&task->emulated_state->xmm_regs[i]._q_ZMMReg[1], 8);
         }
+        _sym_concretize_memory((uint8_t*)&task->emulated_state->xmm_t0._q_ZMMReg[0], 8);
+        _sym_concretize_memory((uint8_t*)&task->emulated_state->xmm_t0._q_ZMMReg[1], 8);
+        _sym_clean_frame();
 #if 0
         for (int i = int_arg_count; i < sizeof(arg_regs) / sizeof(char *); i++)
         {
@@ -3197,7 +3200,7 @@ void forkserver(void) {
 
 void _sym_debug_reg(void);
 void _sym_debug_reg(void) {
-#if HYBRID_DBG_CONSISTENCY_CHECK
+#if 0
     task_t*     task               = get_task();
     if (task) {
         const char* reg_name = "rsp";
@@ -3205,11 +3208,20 @@ void _sym_debug_reg(void) {
         if (treg && task->emulated_state) {
             uint64_t** reg = (uint64_t**)((uint64_t)treg->mem_offset +
                                                 (uint64_t)task->emulated_state);
-            // printf("%s: %lx\n", reg_name, (uint64_t)*reg);
-            uint8_t* start = ((uint8_t*)*reg) - 0x1000;
-            _sym_concretize_memory(start, 0x1000);
-            // printf("Concretizing [%p, %p]\n", start, start + 1024);
+            printf("%s: %lx\n", reg_name, (uint64_t)*reg);
         }
     }
 #endif
+}
+
+void _sym_clean_frame(void) {
+    if (!reached_start) return;
+    task_t*     task               = get_task();
+    static int count = 0;
+    if (task) {
+        uint8_t* rsp = (uint8_t*) task->emulated_state->regs[SLOT_RSP];
+        uint8_t* start = rsp - 0x1000;
+        _sym_concretize_memory(start, 0x1000);
+        // fprintf(stderr, "[%d] Cleaning stack at [%p, %p]\n", count++, start, start + 0x1000);
+    }
 }

@@ -58,6 +58,7 @@ void hybrid_new_thread(uint64_t tid, CPUX86State* state);
 void hybrid_set_sigill_handler(void);
 int  hybrid_is_task_native(void);
 void hybrid_debug(void);
+void _sym_clean_frame(void);
 
 void forkserver(void);
 

@@ -686,8 +686,12 @@ void *HELPER(sym_setcond_i64)(CPUArchState *env,
         env, arg1, arg1_expr, arg2, arg2_expr, cond, result, 64);
 }
 
+void _sym_clean_frame(void);
 void HELPER(sym_notify_call)(uint64_t return_address)
 {
+#if HYBRID_DBG_CONSISTENCY_CHECK
+    _sym_clean_frame();
+#endif
     _sym_notify_call(return_address);
 }
 
@@ -698,7 +702,7 @@ void HELPER(sym_notify_return)(uint64_t return_address)
 
 void HELPER(sym_notify_block)(uint64_t block_id)
 {
-#if HYBRID_DBG_CONSISTENCY_CHECK
+#if 0
     _sym_debug_reg();
 #endif
     _sym_notify_basic_block(block_id);
