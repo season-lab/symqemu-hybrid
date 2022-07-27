@@ -3209,6 +3209,8 @@ void _sym_debug_reg(void) {
             uint64_t** reg = (uint64_t**)((uint64_t)treg->mem_offset +
                                                 (uint64_t)task->emulated_state);
             printf("%s: %lx\n", reg_name, (uint64_t)*reg);
+        } else {
+            // printf("Cannot find rdi: t=%p state=%p\n", treg, task->emulated_state);
         }
     }
 #endif

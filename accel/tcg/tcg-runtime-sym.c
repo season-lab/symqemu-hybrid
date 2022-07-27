@@ -705,6 +705,7 @@ void HELPER(sym_notify_block)(uint64_t block_id)
 #if 0
     _sym_debug_reg();
 #endif
+    // _sym_clean_frame();
     _sym_notify_basic_block(block_id);
 }
 
