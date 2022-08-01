@@ -5094,11 +5094,11 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             if (!hybrid_trace_mode) {
                 gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EAX]), reg_id_eax);
                 gen_helper_sym_store_mem_reg(cpu_env, tcgv_i64_expr(cpu_regs[R_EDX]), reg_id_edx);
-                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, tcgv_i64_expr(s->T0));
+                gen_helper_sym_init_args_2_void((TCGv_ptr) zero, tcgv_i64_expr(s->T0));
             } else {
                 gen_helper_sym_store_mem_reg(cpu_env, (TCGv_ptr) zero, reg_id_eax);
                 gen_helper_sym_store_mem_reg(cpu_env, (TCGv_ptr) zero, reg_id_edx);
-                gen_helper_sym_init_args_2(tcgv_i64_expr(zero), (TCGv_ptr) zero, (TCGv_ptr) zero);
+                gen_helper_sym_init_args_2_void((TCGv_ptr) zero, (TCGv_ptr) zero);
             }
 
 #endif
